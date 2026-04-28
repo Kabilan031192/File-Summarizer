@@ -1960,9 +1960,9 @@ function generateSummary(file, data) {
             }
 
             if (hasPolishingHeaders && !isTranscodingData) {
-                // POLISHING DATA DISPLAY - Robot/Cell ID header
-                summary += `<div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4caf50;">`;
-                summary += `<p style="font-weight: 600; color: #2e7d32; margin-bottom: 10px;">📏 Specification Compliance</p>`;
+                // POLISHING DATA DISPLAY - Robot/Cell ID header with detailed values
+                summary += `<div style="margin-top: 15px; padding: 20px; background: #e8f5e9; border-radius: 12px; border-left: 4px solid #4caf50;">`;
+                summary += `<p style="font-weight: 700; color: #2e7d32; margin-bottom: 15px; font-size: 1.2rem;">📏 Specification Compliance</p>`;
                 summary += `<p style="font-weight: 600; color: #5a67d8; margin-top: 10px; margin-bottom: 8px; font-size: 1.05rem;">Robot/Cell ID</p>`;
 
                 specValidation.forEach((item, idx) => {
@@ -2005,9 +2005,7 @@ function generateSummary(file, data) {
                     }
                 });
 
-                summary += `</div>`;
-
-                // ADD DETAILED VALUES TABLE
+                // ADD DETAILED VALUES TABLE INSIDE THE SAME SECTION
                 summary += `<div style="margin-top: 20px; padding: 20px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
                 summary += `<p style="font-weight: 700; color: #667eea; margin-bottom: 15px; font-size: 1.2rem;">📊 Detailed Measurement Values</p>`;
 
@@ -2111,8 +2109,8 @@ function generateSummary(file, data) {
                 summary += `<span style="color: #666; font-size: 0.9rem;">Out of Spec</span>`;
                 summary += `</div>`;
                 summary += `</div>`;
-
-                summary += `</div>`;
+                summary += `</div>`; // Close the detailed values table div
+                summary += `</div>`; // Close the specification compliance section
             } else if (isTranscodingData) {
                 // TRANSCODING DATA DISPLAY - Show detailed parameter headers
                 summary += `<div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4caf50;">`;
