@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI File Summarizer</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- SheetJS library for Excel parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- html2canvas for capturing content -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>📄 AI File Summarizer</h1>
+            <p>Drag and drop files to get instant AI-powered summaries</p>
+        </header>
+
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-zone-content">
+                <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <h2>Drop files here</h2>
+                <p>or click to browse</p>
+                <p class="supported-formats">Supports: PDF, DOCX, TXT, CSV, XLSX, and more</p>
+            </div>
+            <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.csv,.xlsx,.xls,.doc" hidden>
+        </div>
+
+        <div class="files-section" id="filesSection" style="display: none;">
+            <h3>Uploaded Files</h3>
+            <div class="files-list" id="filesList"></div>
+        </div>
+
+        <div class="summaries-section" id="summariesSection" style="display: none;">
+            <h3>Summaries</h3>
+            <div class="summaries-container" id="summariesContainer"></div>
+        </div>
+
+        <div class="actions" id="actions" style="display: none;">
+            <button class="btn btn-primary" id="summarizeBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Summarize All Files
+            </button>
+            <button class="btn btn-secondary" id="clearBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear All
+            </button>
+        </div>
+
+        <div class="export-actions" id="exportActions" style="display: none;">
+            <h3>📥 Export Summary</h3>
+            <div class="export-buttons">
+                <button class="btn btn-export" id="exportPdfBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Export as PDF
+                </button>
+                <button class="btn btn-export" id="exportPptBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Export as PowerPoint
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=1775737932"></script>
+</body>
+
+</html>
