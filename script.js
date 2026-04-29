@@ -1776,20 +1776,38 @@ function analyzeExcelContent(workbook, fileName = '') {
                 const specHeaders = [];
                 console.log(`Header row length: ${headerRowData.length}, will process cols ${specDataStartCol} to ${Math.min(specDataEndCol, headerRowData.length - 1)}`);
 
-                for (let col = specDataStartCol; col <= Math.min(specDataEndCol, headerRowData.length - 1); col++) {
+                // Process columns, but ensure we always process Scanner Calibration columns (13-14)
+                // even if they don't have headers in row 4
+                const maxCol = Math.max(specDataEndCol, 14); // Ensure we process at least up to column O (14)
+
+                for (let col = specDataStartCol; col <= maxCol; col++) {
+                    // Skip if beyond the data range AND not a Scanner Calibration column
+                    const isScannerCalibrationColumn = (col === 13 || col === 14);
+                    if (col > headerRowData.length - 1 && !isScannerCalibrationColumn) {
+                        continue;
+                    }
+
                     let headerStr = '';
                     console.log(`\n=== Column ${col} (${String.fromCharCode(65 + col)}) ===`);
 
-                    // For columns O and P (indices 14-15), handle Scanner Calibration
-                    // O4:P4 is merged with "Scanner calibration" header
-                    // Column O = X Scanner Calibration, Column P = Y Scanner Calibration
-                    const isScannerCalibrationColumn = (col === 14 || col === 15);
-
+                    // For columns N and O (indices 13-14), handle Scanner Calibration
+                    // N4:O4 is merged with "Scanner calibration" header
+                    // Read the first character from subheader (row 5, index 4) to get X or Y
                     if (isScannerCalibrationColumn) {
-                        // Determine if this is X or Y based on column
-                        const axis = col === 14 ? 'X' : 'Y'; // Column O (14) = X, Column P (15) = Y
-                        headerStr = `${axis} Scanner Calibration`;
-                        console.log(`  → Created header "${headerStr}" for column ${col}`);
+                        // Read from row 5 (index 4) to get the first character (X or Y)
+                        const subHeader = specLimitRowData[col] ? String(specLimitRowData[col]).trim() : '';
+                        console.log(`  Reading subheader from row 5, col ${col}: "${subHeader}"`);
+
+                        if (subHeader && subHeader.length > 0) {
+                            // Get first character from subheader
+                            const firstChar = subHeader.charAt(0).toUpperCase();
+                            headerStr = `${firstChar} Scanner Calibration`;
+                            console.log(`  → Created header "${headerStr}" from subheader "${subHeader}"`);
+                        } else {
+                            // Fallback if no subheader found
+                            headerStr = 'Scanner Calibration';
+                            console.log(`  → No subheader found, using fallback: "${headerStr}"`);
+                        }
                     } else {
                         // For all other columns, read from row 4
                         const header = headerRowData[col];
