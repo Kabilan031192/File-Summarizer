@@ -1538,7 +1538,7 @@ function analyzeExcelContent(workbook, fileName = '') {
             // Process parameters from columns J-T (indices 9-19)
             // Skip columns G, H, I (indices 6, 7, 8)
             const specDataStartCol = 9;  // Column J (index 9)
-            const specDataEndCol = 19;   // Column T (index 19) - DE-PU extends only to T
+            const specDataEndCol = 20;   // Column U (index 20) - need to include U to capture Y Scanner Calibration at index 19
 
             console.log(`Processing columns ${specDataStartCol} to ${specDataEndCol} (${String.fromCharCode(65 + specDataStartCol)} to ${String.fromCharCode(65 + specDataEndCol)})`);
 
