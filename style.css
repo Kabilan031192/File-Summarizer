@@ -232,8 +232,10 @@ header p {
     font-size: 1rem;
 }
 
-.summary-card .summary-content strong {
-    font-weight: 500;
+.summary-card .summary-content strong,
+.summary-card .summary-content p strong,
+.summary-card strong {
+    font-weight: 500 !important;
 }
 
 .summary-card .loading {

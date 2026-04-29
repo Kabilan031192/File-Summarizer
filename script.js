@@ -890,9 +890,12 @@ function analyzeExcelContent(workbook, fileName = '') {
     const isSandingOrPolishing = fileNameLower.includes('sanding') || fileNameLower.includes('polishing');
     const isTranscoding = fileNameLower.includes('transcoding');
     const isDeAno = fileNameLower.includes('de-ano');
+    const isGoldPad = fileNameLower.includes('gold pad') || fileNameLower.includes('goldpad');
 
     console.log(`=== Analyzing file: ${fileName} ===`);
-    if (isDeAno) {
+    if (isGoldPad) {
+        console.log(`File type: GOLD PAD (Similar to DE-ANO, extends to column U)`);
+    } else if (isDeAno) {
         console.log(`File type: DE-ANO (Transcoding-like format, skip rows 1-3)`);
     } else if (isDeburring) {
         console.log(`File type: DEBURRING (Old Format)`);
@@ -910,7 +913,10 @@ function analyzeExcelContent(workbook, fileName = '') {
 
         // Extract metadata based on file type
         let metadata = [];
-        if (isDeAno) {
+        if (isGoldPad) {
+            // For Gold Pad files, use same metadata extraction as DE-ANO
+            metadata = extractMetadataDeAno(jsonData);
+        } else if (isDeAno) {
             // For DE-ANO files, extract metadata from rows 1-3 before skipping them
             metadata = extractMetadataDeAno(jsonData);
         } else if (isSandingOrPolishing) {
@@ -1036,6 +1042,218 @@ function analyzeExcelContent(workbook, fileName = '') {
             return;
         }
 
+        // GOLD PAD FILES - Similar to DE-ANO but extends to column U
+        if (isGoldPad) {
+            console.log('=== GOLD PAD File Detected ===');
+
+            const headerRow = 3;   // Row 4 in Excel - parameter names
+            const targetRow = 4;   // Row 5 in Excel - target values
+            const unitRow = 5;     // Row 6 in Excel - units (if any)
+            const uslRow = 6;      // Row 7 in Excel - USL
+            const lslRow = 7;      // Row 8 in Excel - LSL
+            const dataStartRow = 8; // Row 9 in Excel - first machine data
+            const dataEndRow = 10;  // Row 11 in Excel - third machine data
+
+            // Find machine serial column - try column E (index 4) first, then column F (index 5)
+            let machineSerialColIndex = 4; // Column E
+
+            // Collect unique machine serial numbers from rows 9-11
+            let machineSerials = [];
+            for (let row = dataStartRow; row <= dataEndRow; row++) {
+                if (jsonData[row] && jsonData[row][machineSerialColIndex]) {
+                    const val = String(jsonData[row][machineSerialColIndex]).trim();
+                    const cleanVal = val.replace(/[,`'"]+$/g, '').trim();
+                    if (cleanVal && cleanVal.length > 0 && cleanVal !== '/') {
+                        machineSerials.push(cleanVal);
+                    }
+                }
+            }
+
+            // If no valid serials found in column E, try column F (index 5)
+            if (machineSerials.length === 0) {
+                console.log('No valid machine serials in column E, trying column F');
+                machineSerialColIndex = 5; // Column F
+                for (let row = dataStartRow; row <= dataEndRow; row++) {
+                    if (jsonData[row] && jsonData[row][machineSerialColIndex]) {
+                        const val = String(jsonData[row][machineSerialColIndex]).trim();
+                        const cleanVal = val.replace(/[,`'"]+$/g, '').trim();
+                        if (cleanVal && cleanVal.length > 0 && cleanVal !== '/') {
+                            machineSerials.push(cleanVal);
+                        }
+                    }
+                }
+            }
+
+            console.log(`Found ${machineSerials.length} machines: ${machineSerials.join(', ')}`);
+
+            // Process parameters from columns J-U (indices 9-20)
+            // Skip columns G, H, I (indices 6, 7, 8)
+            const specDataStartCol = 9;  // Column J (index 9)
+            const specDataEndCol = 21;   // Column V (index 21) - extended to ensure U is captured
+
+            console.log(`Processing columns ${specDataStartCol} to ${specDataEndCol} (${String.fromCharCode(65 + specDataStartCol)} to ${String.fromCharCode(65 + specDataEndCol)})`);
+
+            if (jsonData.length > dataEndRow && machineSerials.length > 0) {
+                const headerRowData = jsonData[headerRow] || [];
+                const targetRowData = jsonData[targetRow] || [];
+                const unitRowData = jsonData[unitRow] || [];
+                const uslRowData = jsonData[uslRow] || [];
+                const lslRowData = jsonData[lslRow] || [];
+
+                const specHeaders = [];
+
+                for (let col = specDataStartCol; col < specDataEndCol; col++) {
+                    let headerStr = '';
+                    console.log(`\n=== Column ${col} (${String.fromCharCode(65 + col)}) ===`);
+
+                    // For columns T and U (indices 19-20), handle "Scanner Calibration" merged header
+                    // Column T (index 19) = X Scanner Calibration
+                    // Column U (index 20) = Y Scanner Calibration
+                    const isScannerCalibrationColumn = (col === 19 || col === 20);
+
+                    if (isScannerCalibrationColumn) {
+                        // Read from row 5 (index 4) to get axis info
+                        const subHeaderRowData = jsonData[4]; // Row 5 (index 4)
+                        const subHeader = subHeaderRowData ? subHeaderRowData[col] : null;
+                        console.log(`  Reading from row 5, col ${col}: "${subHeader}"`);
+
+                        if (subHeader) {
+                            const subHeaderStr = String(subHeader).trim();
+                            // Extract X or Y from the subheader
+                            const match = subHeaderStr.match(/^([XY])/i);
+                            if (match) {
+                                const axis = match[1].toUpperCase(); // "X" or "Y"
+                                headerStr = `${axis} Scanner Calibration`;
+                                console.log(`  → Created header "${headerStr}" from "${subHeaderStr}"`);
+                            } else {
+                                // Fallback
+                                headerStr = `${subHeaderStr} Scanner Calibration`;
+                                console.log(`  → Fallback header "${headerStr}"`);
+                            }
+                        }
+                    } else {
+                        // For all other columns, read from row 4
+                        const header = headerRowData[col];
+                        console.log(`  Reading from row 4, col ${col}: "${header}"`);
+                        if (header) {
+                            headerStr = String(header).trim();
+                        }
+                    }
+
+                    if (headerStr && headerStr.length > 0) {
+                        // Get target value from row 5
+                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+
+                        // Get unit from row 6
+                        const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
+
+                        // Get USL and LSL from rows 7 and 8
+                        let usl = uslRowData[col] ? String(uslRowData[col]).trim() : '';
+                        let lsl = lslRowData[col] ? String(lslRowData[col]).trim() : '';
+
+                        // Ignore USL/LSL if they contain "/" or other non-numeric values
+                        if (usl === '/' || usl === '-' || (usl && isNaN(parseFloat(usl)))) {
+                            usl = '';
+                        }
+                        if (lsl === '/' || lsl === '-' || (lsl && isNaN(parseFloat(lsl)))) {
+                            lsl = '';
+                        }
+
+                        // Build spec limit text
+                        let specLimit = '';
+                        if (usl && lsl) {
+                            specLimit = `${lsl}-${usl}`;
+                        } else if (usl) {
+                            specLimit = `<=${usl}`;
+                        } else if (lsl) {
+                            specLimit = `>=${lsl}`;
+                        }
+
+                        specHeaders.push({
+                            col: col,
+                            name: headerStr,
+                            target: target,
+                            unit: unit,
+                            usl: usl,
+                            lsl: lsl,
+                            specLimit: specLimit,
+                            parentHeader: null
+                        });
+
+                        console.log(`✓ Created spec header at col ${col}:`);
+                        console.log(`  name: "${headerStr}"`);
+                        console.log(`  target: "${target}"`);
+                        console.log(`  unit: "${unit}"`);
+                        console.log(`  usl: "${usl}", lsl: "${lsl}"`);
+                        console.log(`  specLimit: "${specLimit}"`);
+                    }
+                }
+
+                console.log(`Found ${specHeaders.length} spec headers for GOLD PAD file`);
+
+                // Group data by machine serial
+                const machineData = {};
+                machineSerials.forEach((serial) => {
+                    machineData[serial] = {
+                        parameters: []
+                    };
+                });
+
+                // Process each machine's data (rows 9-11)
+                machineSerials.forEach((serial, machineIdx) => {
+                    const dataRow = dataStartRow + machineIdx;
+
+                    specHeaders.forEach(header => {
+                        if (jsonData[dataRow] && jsonData[dataRow][header.col] !== undefined && jsonData[dataRow][header.col] !== '') {
+                            const value = jsonData[dataRow][header.col];
+                            const displayValue = String(value).trim();
+
+                            // Skip if value is '/' or empty
+                            if (displayValue === '/' || displayValue === '' || displayValue.length === 0) {
+                                console.log(`Skipping parameter for ${serial}: ${header.name} (value is '${displayValue}')`);
+                                return;
+                            }
+
+                            const param = {
+                                name: header.name,
+                                value: displayValue,
+                                target: header.target,
+                                unit: header.unit,
+                                usl: header.usl,
+                                lsl: header.lsl,
+                                specLimit: header.specLimit,
+                                parentHeader: header.parentHeader || null
+                            };
+                            machineData[serial].parameters.push(param);
+                            console.log(`Added parameter for ${serial}: ${header.name} = ${displayValue}`);
+                        }
+                    });
+                });
+
+                console.log('GOLD PAD machine data structure:', machineData);
+
+                // Add each machine as a spec_validation item
+                Object.keys(machineData).forEach(serial => {
+                    const machine = machineData[serial];
+
+                    analysis.push({
+                        type: 'spec_validation',
+                        field: serial,
+                        machineId: serial,
+                        message: `${serial}`,
+                        status: 'good',
+                        spec: null,
+                        stats: {},
+                        parameters: machine.parameters,
+                        mainHeader: 'GOLD PAD Calibration Data'
+                    });
+                });
+            }
+
+            // Skip further processing
+            return;
+        }
+
         // DE-ANO FILES - Metadata in A-F (rows 4-11), Parameters in J-T (rows 4-11)
         if (isDeAno) {
             console.log('=== DE-ANO File Detected ===');
@@ -1092,10 +1310,10 @@ function analyzeExcelContent(workbook, fileName = '') {
 
             console.log(`Found ${machineSerials.length} machines: ${machineSerials.join(', ')}`);
 
-            // Process parameters from columns J-T (indices 9-19)
+            // Process parameters from columns J-U (indices 9-20)
             // Skip columns G, H, I (indices 6, 7, 8)
             const specDataStartCol = 9;  // Column J (index 9)
-            const specDataEndCol = 19;   // Column T (index 19)
+            const specDataEndCol = 20;   // Column U (index 20) - extended to ensure T is captured
 
             console.log(`Processing columns ${specDataStartCol} to ${specDataEndCol} (${String.fromCharCode(65 + specDataStartCol)} to ${String.fromCharCode(65 + specDataEndCol)})`);
 
@@ -1108,11 +1326,13 @@ function analyzeExcelContent(workbook, fileName = '') {
 
                 const specHeaders = [];
 
-                for (let col = specDataStartCol; col <= Math.min(specDataEndCol, headerRowData.length - 1); col++) {
+                for (let col = specDataStartCol; col < specDataEndCol; col++) {
                     let headerStr = '';
                     console.log(`\n=== Column ${col} (${String.fromCharCode(65 + col)}) ===`);
 
                     // For columns S and T (indices 18-19), handle "Scanner Calibration" merged header
+                    // Column S (index 18) = X Scanner Calibration
+                    // Column T (index 19) = Y Scanner Calibration
                     const isScannerCalibrationColumn = (col === 18 || col === 19);
 
                     if (isScannerCalibrationColumn) {
@@ -2495,7 +2715,7 @@ function generateSummary(file, data) {
                                     if (isWithinSpec) {
                                         passedParams++;
                                         icon = '✅';
-                                        color = '#2e7d32';
+                                        color = '#34d399';
                                     } else {
                                         icon = '❌';
                                         color = '#c62828';
@@ -2516,7 +2736,7 @@ function generateSummary(file, data) {
                                     if (isWithinSpec) {
                                         passedParams++;
                                         icon = '✅';
-                                        color = '#2e7d32';
+                                        color = '#34d399';
                                     } else {
                                         icon = '❌';
                                         color = '#c62828';
@@ -2567,7 +2787,7 @@ function generateSummary(file, data) {
                             }
                             // Add unit after the value if available
                             const valueWithUnit = param.unit ? `${displayValue} ${param.unit}` : displayValue;
-                            summary += `<p style="margin: 4px 0; color: ${color}; font-size: 0.95rem;">${icon} <strong>${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
+                            summary += `<p style="margin: 4px 0; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
                         });
 
                         // Then display grouped parameters under their parent headers
@@ -2679,7 +2899,7 @@ function generateSummary(file, data) {
                                 }
                                 // Add unit after the value if available
                                 const valueWithUnit = param.unit ? `${displayValue} ${param.unit}` : displayValue;
-                                summary += `<p style="margin: 4px 0 4px 10px; color: ${color}; font-size: 0.95rem;">${icon} <strong>${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
+                                summary += `<p style="margin: 4px 0 4px 10px; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
                             });
                         });
 
