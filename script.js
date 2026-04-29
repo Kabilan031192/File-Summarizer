@@ -2451,9 +2451,9 @@ function analyzeExcelContent(workbook, fileName = '') {
         }
 
         // ORIGINAL FORMAT PROCESSING (for deburring and other files)
-        // Find the first non-empty column (starting from column J, index 9)
+        // Find the first non-empty column (starting from column I, index 8)
         let firstDataCol = -1;
-        for (let col = 9; col < 100; col++) {
+        for (let col = 8; col < 100; col++) {
             let hasData = false;
             for (let row = 0; row < Math.min(20, jsonData.length); row++) {
                 if (jsonData[row] && jsonData[row][col]) {
