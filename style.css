@@ -232,6 +232,10 @@ header p {
     font-size: 1rem;
 }
 
+.summary-card .summary-content strong {
+    font-weight: 500;
+}
+
 .summary-card .loading {
     display: flex;
     align-items: center;
