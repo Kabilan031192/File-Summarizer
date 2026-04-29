@@ -1172,8 +1172,8 @@ function analyzeExcelContent(workbook, fileName = '') {
                     }
 
                     if (headerStr && headerStr.length > 0) {
-                        // Get target value from row 5
-                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+                        // Get target value from row 5 (skip for Scanner Calibration columns as row 5 contains subheader)
+                        const target = !isScannerCalibrationColumn && targetRowData[col] ? String(targetRowData[col]).trim() : '';
 
                         // Get unit from row 6
                         const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
@@ -1384,8 +1384,8 @@ function analyzeExcelContent(workbook, fileName = '') {
                     }
 
                     if (headerStr && headerStr.length > 0) {
-                        // Get target value from row 5
-                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+                        // Get target value from row 5 (skip for Scanner Calibration columns as row 5 contains subheader)
+                        const target = !isScannerCalibrationColumn && targetRowData[col] ? String(targetRowData[col]).trim() : '';
 
                         // Get unit from row 6
                         const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
@@ -1595,8 +1595,8 @@ function analyzeExcelContent(workbook, fileName = '') {
                     }
 
                     if (headerStr && headerStr.length > 0) {
-                        // Get target value from row 5
-                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+                        // Get target value from row 5 (skip for Scanner Calibration columns as row 5 contains subheader)
+                        const target = !isScannerCalibrationColumn && targetRowData[col] ? String(targetRowData[col]).trim() : '';
 
                         // Get unit from row 6
                         const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
@@ -1807,8 +1807,8 @@ function analyzeExcelContent(workbook, fileName = '') {
                     }
 
                     if (headerStr && headerStr.length > 0) {
-                        // Get target value from row 5
-                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+                        // Get target value from row 5 (skip for Scanner Calibration columns as row 5 contains subheader)
+                        const target = !isScannerCalibrationColumn && targetRowData[col] ? String(targetRowData[col]).trim() : '';
 
                         // Get unit from row 6
                         const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
@@ -2031,8 +2031,8 @@ function analyzeExcelContent(workbook, fileName = '') {
                     }
 
                     if (headerStr && headerStr.length > 0) {
-                        // Get target value from row 5
-                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+                        // Get target value from row 5 (skip for Scanner Calibration columns as row 5 contains subheader)
+                        const target = !isScannerCalibrationColumn && targetRowData[col] ? String(targetRowData[col]).trim() : '';
 
                         // Get unit from row 6
                         const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
