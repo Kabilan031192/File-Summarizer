@@ -14,6 +14,7 @@ const summarizeBtn = document.getElementById('summarizeBtn');
 const clearBtn = document.getElementById('clearBtn');
 const clearBtnTop = document.getElementById('clearBtnTop');
 const exportActions = document.getElementById('exportActions');
+const copyResultsBtn = document.getElementById('copyResultsBtn');
 const exportPdfBtn = document.getElementById('exportPdfBtn');
 const exportPptBtn = document.getElementById('exportPptBtn');
 
