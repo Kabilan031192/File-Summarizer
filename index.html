@@ -19,8 +19,66 @@
 <body>
     <div class="container">
         <header>
-            <h1>📄 AI File Summarizer</h1>
-            <p>Drag and drop files to get instant AI-powered summaries</p>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                    <h1>📄 AI File Summarizer</h1>
+                    <p>Drag and drop files to get instant AI-powered summaries</p>
+                </div>
+                <button class="btn btn-secondary" id="clearBtnTop" style="display: none;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Clear All
+                </button>
+            </div>
+
+            <!-- How to Use Section -->
+            <details
+                style="margin-top: 20px; padding: 15px; background: rgba(30, 41, 59, 0.6); border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.1);">
+                <summary style="cursor: pointer; font-weight: 600; color: #818cf8; font-size: 1.1rem; padding: 5px;">
+                    📖 How to Use This App
+                </summary>
+                <div style="margin-top: 15px; color: #cbd5e1; line-height: 1.8;">
+                    <h3 style="color: #818cf8; margin-bottom: 10px;">Supported File Types:</h3>
+                    <ul style="margin-left: 20px; margin-bottom: 15px;">
+                        <li><strong>DE-ANO Files:</strong> Calibration data with parameters from columns J-T</li>
+                        <li><strong>Gold Pad Files:</strong> Extended calibration data with parameters from columns J-U
+                            (includes X/Y table repeating accuracy)</li>
+                        <li><strong>Transcoding Files:</strong> Machine calibration data with spec validation</li>
+                        <li><strong>Polishing/Sanding Files:</strong> Robot cell calibration data</li>
+                        <li><strong>Deburring Files:</strong> Nozzle-based measurement data</li>
+                    </ul>
+
+                    <h3 style="color: #818cf8; margin-bottom: 10px;">Steps to Use:</h3>
+                    <ol style="margin-left: 20px; margin-bottom: 15px;">
+                        <li><strong>Upload Files:</strong> Drag and drop your Excel files (.xlsx, .xls) into the drop
+                            zone, or click to browse</li>
+                        <li><strong>Review Files:</strong> Check the uploaded files list to ensure all files are loaded
+                        </li>
+                        <li><strong>Summarize:</strong> Click "Summarize All Files" to analyze the data</li>
+                        <li><strong>View Results:</strong> Review the detailed analysis including:
+                            <ul style="margin-left: 20px; margin-top: 5px;">
+                                <li>Document metadata (machine IDs, dates, etc.)</li>
+                                <li>Parameter values with spec compliance</li>
+                                <li>Pass/fail status for each parameter</li>
+                                <li>Summary statistics</li>
+                            </ul>
+                        </li>
+                        <li><strong>Export:</strong> Download results as PDF or Excel for reporting</li>
+                    </ol>
+
+                    <h3 style="color: #818cf8; margin-bottom: 10px;">Key Features:</h3>
+                    <ul style="margin-left: 20px;">
+                        <li>✅ Automatic file type detection</li>
+                        <li>✅ Spec validation with color-coded results (green = pass, red = fail)</li>
+                        <li>✅ Support for merged cells and complex Excel structures</li>
+                        <li>✅ Scanner Calibration (X and Y axis) analysis</li>
+                        <li>✅ Multiple machine data in single file</li>
+                        <li>✅ Export to PDF or Excel format</li>
+                    </ul>
+                </div>
+            </details>
         </header>
 
         <div class="drop-zone" id="dropZone">

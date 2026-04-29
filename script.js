@@ -12,6 +12,7 @@ const summariesContainer = document.getElementById('summariesContainer');
 const actions = document.getElementById('actions');
 const summarizeBtn = document.getElementById('summarizeBtn');
 const clearBtn = document.getElementById('clearBtn');
+const clearBtnTop = document.getElementById('clearBtnTop');
 const exportActions = document.getElementById('exportActions');
 const exportPdfBtn = document.getElementById('exportPdfBtn');
 const exportPptBtn = document.getElementById('exportPptBtn');
@@ -51,6 +52,7 @@ function handleFiles(files) {
     if (uploadedFiles.length > 0) {
         filesSection.style.display = 'block';
         actions.style.display = 'flex';
+        clearBtnTop.style.display = 'block';
         renderFilesList();
     }
 }
@@ -90,22 +92,30 @@ function removeFile(index) {
         actions.style.display = 'none';
         summariesSection.style.display = 'none';
         exportActions.style.display = 'none';
+        clearBtnTop.style.display = 'none';
     }
 
     renderFilesList();
 }
 
-// Clear all files
-clearBtn.addEventListener('click', () => {
+// Clear all files function
+function clearAllFiles() {
     uploadedFiles = [];
     summariesData = [];
     filesSection.style.display = 'none';
     actions.style.display = 'none';
     summariesSection.style.display = 'none';
     exportActions.style.display = 'none';
+    clearBtnTop.style.display = 'none';
     summariesContainer.innerHTML = '';
     fileInput.value = '';
-});
+}
+
+// Clear all files - bottom button
+clearBtn.addEventListener('click', clearAllFiles);
+
+// Clear all files - top button
+clearBtnTop.addEventListener('click', clearAllFiles);
 
 // Summarize files
 summarizeBtn.addEventListener('click', async () => {
