@@ -351,6 +351,77 @@ function isWithinSpec(value, spec) {
     return numValue >= spec.min && numValue <= spec.max;
 }
 
+// Extract metadata for DE-ANO files (from columns A-F, rows 4-11)
+function extractMetadataDeAno(jsonData) {
+    const metadata = [];
+    console.log('=== Starting DE-ANO Metadata Extraction ===');
+
+    // For DE-ANO files:
+    // - Columns A-F (indices 0-5) contain metadata
+    // - Rows 4-8 (indices 3-7) have merged cells with labels
+    // - Rows 9-11 (indices 8-10) have individual values for 3 machines
+
+    const metadataStartCol = 0; // Column A
+    const metadataEndCol = 5;   // Column F
+    const labelStartRow = 3;    // Row 4 in Excel
+    const labelEndRow = 7;      // Row 8 in Excel
+    const valueStartRow = 8;    // Row 9 in Excel
+    const valueEndRow = 10;     // Row 11 in Excel
+
+    // Process each metadata column (A-F)
+    for (let col = metadataStartCol; col <= metadataEndCol; col++) {
+        // Find the label in rows 4-8 (merged cells)
+        let label = '';
+        for (let row = labelStartRow; row <= labelEndRow; row++) {
+            if (jsonData[row] && jsonData[row][col]) {
+                const cellStr = String(jsonData[row][col]).trim();
+                if (cellStr.length > 0 && cellStr.length < 100) {
+                    label = cellStr;
+                    console.log(`Found DE-ANO label at row ${row + 1}, col ${col}: ${label}`);
+                    break; // Found the label for this column
+                }
+            }
+        }
+
+        // If we found a label, collect values from rows 9-11
+        if (label) {
+            const values = [];
+            for (let row = valueStartRow; row <= valueEndRow; row++) {
+                if (jsonData[row] && jsonData[row][col] !== undefined && jsonData[row][col] !== null) {
+                    let val = String(jsonData[row][col]).trim();
+                    // Clean up trailing characters
+                    val = val.replace(/[,`'"]+$/g, '').trim();
+                    // Skip if value is '/' or empty
+                    if (val && val !== '' && val !== '/') {
+                        values.push(val);
+                        console.log(`  Found value for "${label}": ${val}`);
+                    }
+                }
+            }
+
+            // Add to metadata if we found values
+            if (values.length > 0) {
+                const uniqueValues = [...new Set(values)];
+                const displayValue = uniqueValues.length === 1 ? uniqueValues[0] : uniqueValues.join(', ');
+                // Fix common spelling errors in labels
+                let cleanKey = label.replace(/:/g, '').trim();
+                cleanKey = cleanKey.replace(/machien/gi, 'machine'); // Fix "machien" -> "machine"
+
+                metadata.push({
+                    key: cleanKey,
+                    value: displayValue,
+                    row: labelStartRow,
+                    col: col
+                });
+                console.log(`✓ Added DE-ANO metadata: ${cleanKey} = ${displayValue}`);
+            }
+        }
+    }
+
+    console.log(`=== Total DE-ANO metadata items found: ${metadata.length} ===`);
+    return metadata;
+}
+
 // Extract metadata for TRANSCODING files
 function extractMetadataTranscoding(jsonData) {
     const metadata = [];
@@ -818,9 +889,12 @@ function analyzeExcelContent(workbook, fileName = '') {
     const isDeburring = fileNameLower.includes('deburring') || fileNameLower.includes('db');
     const isSandingOrPolishing = fileNameLower.includes('sanding') || fileNameLower.includes('polishing');
     const isTranscoding = fileNameLower.includes('transcoding');
+    const isDeAno = fileNameLower.includes('de-ano');
 
     console.log(`=== Analyzing file: ${fileName} ===`);
-    if (isDeburring) {
+    if (isDeAno) {
+        console.log(`File type: DE-ANO (Transcoding-like format, skip rows 1-3)`);
+    } else if (isDeburring) {
         console.log(`File type: DEBURRING (Old Format)`);
     } else if (isSandingOrPolishing) {
         console.log(`File type: SANDING/POLISHING (New Calibration Format)`);
@@ -836,7 +910,10 @@ function analyzeExcelContent(workbook, fileName = '') {
 
         // Extract metadata based on file type
         let metadata = [];
-        if (isSandingOrPolishing) {
+        if (isDeAno) {
+            // For DE-ANO files, extract metadata from rows 1-3 before skipping them
+            metadata = extractMetadataDeAno(jsonData);
+        } else if (isSandingOrPolishing) {
             metadata = extractMetadataPolishing(jsonData);
         } else if (isDeburring) {
             metadata = extractMetadataDeburring(jsonData);
@@ -951,6 +1028,228 @@ function analyzeExcelContent(workbook, fileName = '') {
                         spec: null,
                         stats: {},
                         headers: machine.headers
+                    });
+                });
+            }
+
+            // Skip further processing
+            return;
+        }
+
+        // DE-ANO FILES - Metadata in A-F (rows 4-11), Parameters in J-T (rows 4-11)
+        if (isDeAno) {
+            console.log('=== DE-ANO File Detected ===');
+
+            // For DE-ANO files:
+            // Metadata: Columns A-F, rows 4-11 (already extracted)
+            // Parameters: Columns J-T (indices 9-19)
+            // Row 4 (index 3): Parameter names
+            // Row 5 (index 4): Target values
+            // Row 6 (index 5): (empty or units)
+            // Row 7 (index 6): USL values
+            // Row 8 (index 7): LSL values
+            // Rows 9-11 (indices 8-10): Actual values for 3 machines
+
+            const headerRow = 3;   // Row 4 in Excel - parameter names
+            const targetRow = 4;   // Row 5 in Excel - target values
+            const unitRow = 5;     // Row 6 in Excel - units (if any)
+            const uslRow = 6;      // Row 7 in Excel - USL
+            const lslRow = 7;      // Row 8 in Excel - LSL
+            const dataStartRow = 8; // Row 9 in Excel - first machine data
+            const dataEndRow = 10;  // Row 11 in Excel - third machine data
+
+            // Find machine serial column - try column E (index 4) first, then column F (index 5)
+            let machineSerialColIndex = 4; // Column E
+
+            // Collect unique machine serial numbers from rows 9-11
+            let machineSerials = [];
+            for (let row = dataStartRow; row <= dataEndRow; row++) {
+                if (jsonData[row] && jsonData[row][machineSerialColIndex]) {
+                    const val = String(jsonData[row][machineSerialColIndex]).trim();
+                    const cleanVal = val.replace(/[,`'"]+$/g, '').trim();
+                    // Skip if value is '/' or empty
+                    if (cleanVal && cleanVal.length > 0 && cleanVal !== '/') {
+                        machineSerials.push(cleanVal);
+                    }
+                }
+            }
+
+            // If no valid serials found in column E, try column F (index 5)
+            if (machineSerials.length === 0) {
+                console.log('No valid machine serials in column E, trying column F');
+                machineSerialColIndex = 5; // Column F
+                for (let row = dataStartRow; row <= dataEndRow; row++) {
+                    if (jsonData[row] && jsonData[row][machineSerialColIndex]) {
+                        const val = String(jsonData[row][machineSerialColIndex]).trim();
+                        const cleanVal = val.replace(/[,`'"]+$/g, '').trim();
+                        // Skip if value is '/' or empty
+                        if (cleanVal && cleanVal.length > 0 && cleanVal !== '/') {
+                            machineSerials.push(cleanVal);
+                        }
+                    }
+                }
+            }
+
+            console.log(`Found ${machineSerials.length} machines: ${machineSerials.join(', ')}`);
+
+            // Process parameters from columns J-T (indices 9-19)
+            // Skip columns G, H, I (indices 6, 7, 8)
+            const specDataStartCol = 9;  // Column J (index 9)
+            const specDataEndCol = 19;   // Column T (index 19)
+
+            console.log(`Processing columns ${specDataStartCol} to ${specDataEndCol} (${String.fromCharCode(65 + specDataStartCol)} to ${String.fromCharCode(65 + specDataEndCol)})`);
+
+            if (jsonData.length > dataEndRow && machineSerials.length > 0) {
+                const headerRowData = jsonData[headerRow] || [];
+                const targetRowData = jsonData[targetRow] || [];
+                const unitRowData = jsonData[unitRow] || [];
+                const uslRowData = jsonData[uslRow] || [];
+                const lslRowData = jsonData[lslRow] || [];
+
+                const specHeaders = [];
+
+                for (let col = specDataStartCol; col <= Math.min(specDataEndCol, headerRowData.length - 1); col++) {
+                    let headerStr = '';
+                    console.log(`\n=== Column ${col} (${String.fromCharCode(65 + col)}) ===`);
+
+                    // For columns S and T (indices 18-19), handle "Scanner Calibration" merged header
+                    const isScannerCalibrationColumn = (col === 18 || col === 19);
+
+                    if (isScannerCalibrationColumn) {
+                        // Read from row 5 (index 4) to get axis info
+                        const subHeaderRowData = jsonData[4]; // Row 5 (index 4)
+                        const subHeader = subHeaderRowData ? subHeaderRowData[col] : null;
+                        console.log(`  Reading from row 5, col ${col}: "${subHeader}"`);
+
+                        if (subHeader) {
+                            const subHeaderStr = String(subHeader).trim();
+                            // Extract X or Y from the subheader
+                            const match = subHeaderStr.match(/^([XY])/i);
+                            if (match) {
+                                const axis = match[1].toUpperCase(); // "X" or "Y"
+                                headerStr = `${axis} Scanner Calibration`;
+                                console.log(`  → Created header "${headerStr}" from "${subHeaderStr}"`);
+                            } else {
+                                // Fallback
+                                headerStr = `${subHeaderStr} Scanner Calibration`;
+                                console.log(`  → Fallback header "${headerStr}"`);
+                            }
+                        }
+                    } else {
+                        // For all other columns, read from row 4
+                        const header = headerRowData[col];
+                        console.log(`  Reading from row 4, col ${col}: "${header}"`);
+                        if (header) {
+                            headerStr = String(header).trim();
+                        }
+                    }
+
+                    if (headerStr && headerStr.length > 0) {
+                        // Get target value from row 5
+                        const target = targetRowData[col] ? String(targetRowData[col]).trim() : '';
+
+                        // Get unit from row 6
+                        const unit = unitRowData[col] ? String(unitRowData[col]).trim() : '';
+
+                        // Get USL and LSL from rows 7 and 8
+                        let usl = uslRowData[col] ? String(uslRowData[col]).trim() : '';
+                        let lsl = lslRowData[col] ? String(lslRowData[col]).trim() : '';
+
+                        // Ignore USL/LSL if they contain "/" or other non-numeric values
+                        if (usl === '/' || usl === '-' || (usl && isNaN(parseFloat(usl)))) {
+                            usl = '';
+                        }
+                        if (lsl === '/' || lsl === '-' || (lsl && isNaN(parseFloat(lsl)))) {
+                            lsl = '';
+                        }
+
+                        // Build spec limit text
+                        let specLimit = '';
+                        if (usl && lsl) {
+                            specLimit = `${lsl}-${usl}`;
+                        } else if (usl) {
+                            specLimit = `<=${usl}`;
+                        } else if (lsl) {
+                            specLimit = `>=${lsl}`;
+                        }
+
+                        specHeaders.push({
+                            col: col,
+                            name: headerStr,
+                            target: target,
+                            unit: unit,
+                            usl: usl,
+                            lsl: lsl,
+                            specLimit: specLimit,
+                            parentHeader: null
+                        });
+
+                        console.log(`✓ Created spec header at col ${col}:`);
+                        console.log(`  name: "${headerStr}"`);
+                        console.log(`  target: "${target}"`);
+                        console.log(`  unit: "${unit}"`);
+                        console.log(`  usl: "${usl}", lsl: "${lsl}"`);
+                        console.log(`  specLimit: "${specLimit}"`);
+                    }
+                }
+
+                console.log(`Found ${specHeaders.length} spec headers for DE-ANO file`);
+
+                // Group data by machine serial
+                const machineData = {};
+                machineSerials.forEach((serial) => {
+                    machineData[serial] = {
+                        parameters: []
+                    };
+                });
+
+                // Process each machine's data (rows 9-11)
+                machineSerials.forEach((serial, machineIdx) => {
+                    const dataRow = dataStartRow + machineIdx;
+
+                    specHeaders.forEach(header => {
+                        if (jsonData[dataRow] && jsonData[dataRow][header.col] !== undefined && jsonData[dataRow][header.col] !== '') {
+                            const value = jsonData[dataRow][header.col];
+                            const displayValue = String(value).trim();
+
+                            // Skip if value is '/' or empty
+                            if (displayValue === '/' || displayValue === '' || displayValue.length === 0) {
+                                console.log(`Skipping parameter for ${serial}: ${header.name} (value is '${displayValue}')`);
+                                return;
+                            }
+
+                            const param = {
+                                name: header.name,
+                                value: displayValue,
+                                target: header.target,
+                                unit: header.unit,
+                                usl: header.usl,
+                                lsl: header.lsl,
+                                specLimit: header.specLimit,
+                                parentHeader: header.parentHeader || null
+                            };
+                            machineData[serial].parameters.push(param);
+                            console.log(`Added parameter for ${serial}: ${header.name} = ${displayValue}`);
+                        }
+                    });
+                });
+
+                console.log('DE-ANO machine data structure:', machineData);
+
+                // Add each machine as a spec_validation item
+                Object.keys(machineData).forEach(serial => {
+                    const machine = machineData[serial];
+
+                    analysis.push({
+                        type: 'spec_validation',
+                        field: serial,
+                        machineId: serial,
+                        message: `${serial}`,
+                        status: 'good',
+                        spec: null,
+                        stats: {},
+                        parameters: machine.parameters,
+                        mainHeader: 'DE-ANO Calibration Data'
                     });
                 });
             }
@@ -1788,8 +2087,8 @@ function generateSummary(file, data) {
 
         // Display Metadata First (if found)
         if (metadata.length > 0 && metadata[0].items && metadata[0].items.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #e8eaf6; border-radius: 8px; border-left: 4px solid #5c6bc0;">`;
-            summary += `<p style="font-weight: 600; color: #3949ab; margin-bottom: 10px;">📋 Document Metadata</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+            summary += `<p style="font-weight: 700; color: #818cf8; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">📋 Document Metadata</p>`;
 
             metadata[0].items.forEach(item => {
                 // Remove any colons from the key
@@ -1819,7 +2118,7 @@ function generateSummary(file, data) {
                     }
                 }
 
-                summary += `<p style="margin: 6px 0; color: #37474f;"><strong>${cleanKey}</strong> - ${displayValue}</p>`;
+                summary += `<p style="margin: 6px 0; color: #cbd5e1;"><strong>${cleanKey}</strong> - ${displayValue}</p>`;
             });
 
             summary += `</div>`;
@@ -1960,18 +2259,102 @@ function generateSummary(file, data) {
             }
 
             if (hasPolishingHeaders && !isTranscodingData) {
-                // POLISHING DATA DISPLAY - Robot/Cell ID header with detailed values
-                summary += `<div style="margin-top: 15px; padding: 20px; background: #e8f5e9; border-radius: 12px; border-left: 4px solid #4caf50;">`;
-                summary += `<p style="font-weight: 700; color: #2e7d32; margin-bottom: 15px; font-size: 1.2rem;">📏 Specification Compliance</p>`;
-                summary += `<p style="font-weight: 600; color: #5a67d8; margin-top: 10px; margin-bottom: 8px; font-size: 1.05rem;">Robot/Cell ID</p>`;
+                // POLISHING DATA DISPLAY - Robot/Cell ID header with tables per machine
+                summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+                summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 20px; font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">📏 Specification Compliance</p>`;
+                summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 15px; margin-bottom: 12px; font-size: 1.1rem; padding-left: 8px; border-left: 4px solid #818cf8;">Robot/Cell ID</p>`;
 
+                const specMin = 0;
+                const specMax = 0.2;
+
+                // Collect all unique merged headers and their sub-headers
+                const headerStructure = {};
+                specValidation.forEach(item => {
+                    if (item.headers) {
+                        Object.keys(item.headers).forEach(mergedHeader => {
+                            if (!headerStructure[mergedHeader]) {
+                                headerStructure[mergedHeader] = new Set();
+                            }
+                            Object.keys(item.headers[mergedHeader]).forEach(subHeader => {
+                                headerStructure[mergedHeader].add(subHeader);
+                            });
+                        });
+                    }
+                });
+
+                // Display each machine separately with its own table
                 specValidation.forEach((item, idx) => {
                     if (item.headers) {
                         const machineId = item.machineId;
 
-                        // Validate all values against spec (0 to 0.2)
-                        const specMin = 0;
-                        const specMax = 0.2;
+                        // Show machine name and spec range in a flex container
+                        summary += `<div style="margin-top: ${idx > 0 ? '25px' : '10px'};">`;
+                        summary += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 0 10px;">`;
+                        summary += `<p style="font-weight: 600; color: #818cf8; margin: 0; font-size: 1.05rem;">${machineId}</p>`;
+                        summary += `<p style="margin: 0; color: #666; font-size: 0.9rem; font-style: italic;">Spec: 0 - 0.2</p>`;
+                        summary += `</div>`;
+
+                        // Create table for this machine
+                        summary += `<div style="margin-left: 20px; padding: 18px; background: #0f172a; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+                        summary += `<div style="overflow-x: auto;">`;
+                        summary += `<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">`;
+
+                        // Table header - First row (merged headers)
+                        summary += `<thead>`;
+                        summary += `<tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">`;
+
+                        Object.keys(headerStructure).forEach(mergedHeader => {
+                            const subHeaderCount = headerStructure[mergedHeader].size;
+                            summary += `<th colspan="${subHeaderCount}" style="padding: 12px; text-align: center; color: white; font-weight: 600; border: 1px solid rgba(255,255,255,0.3);">${mergedHeader}</th>`;
+                        });
+
+                        summary += `</tr>`;
+
+                        // Table header - Second row (sub-headers)
+                        summary += `<tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">`;
+
+                        Object.keys(headerStructure).forEach(mergedHeader => {
+                            Array.from(headerStructure[mergedHeader]).forEach(subHeader => {
+                                summary += `<th style="padding: 10px 8px; text-align: center; color: white; font-weight: 500; border: 1px solid rgba(255,255,255,0.3); font-size: 0.85rem; min-width: 100px;">${subHeader}</th>`;
+                            });
+                        });
+
+                        summary += `</tr>`;
+                        summary += `</thead>`;
+
+                        // Table body - Single data row for this machine
+                        summary += `<tbody>`;
+                        summary += `<tr style="background: #1e293b;">`;
+
+                        // Add values for each merged header and sub-header
+                        Object.keys(headerStructure).forEach(mergedHeader => {
+                            Array.from(headerStructure[mergedHeader]).forEach(subHeader => {
+                                const value = item.headers[mergedHeader] && item.headers[mergedHeader][subHeader]
+                                    ? item.headers[mergedHeader][subHeader]
+                                    : '-';
+
+                                // Check if value is within spec
+                                const numVal = parseFloat(value);
+                                let cellColor = '#e2e8f0';
+                                let cellBg = 'transparent';
+
+                                if (!isNaN(numVal)) {
+                                    const isWithinSpec = numVal >= specMin && numVal <= specMax;
+                                    cellColor = isWithinSpec ? '#34d399' : '#f87171';
+                                    cellBg = isWithinSpec ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                                }
+
+                                summary += `<td style="padding: 10px 8px; text-align: center; color: ${cellColor}; background: ${cellBg}; border: 1px solid #e0e0e0; font-weight: 500;">${value}</td>`;
+                            });
+                        });
+
+                        summary += `</tr>`;
+                        summary += `</tbody>`;
+                        summary += `</table>`;
+                        summary += `</div>`;
+                        summary += `</div>`;
+
+                        // Calculate and display summary statistics AFTER the table
                         let totalParams = 0;
                         let passedParams = 0;
 
@@ -1995,131 +2378,24 @@ function generateSummary(file, data) {
 
                         const passRate = totalParams > 0 ? ((passedParams / totalParams) * 100).toFixed(1) : 0;
                         const icon = passRate >= 95 ? '✅' : passRate >= 80 ? '⚠️' : '❌';
-                        const color = passRate >= 95 ? '#2e7d32' : passRate >= 80 ? '#f57c00' : '#c62828';
+                        const color = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
 
-                        // Show machine name
-                        summary += `<p style="font-weight: 600; color: #667eea; margin-top: 10px; margin-bottom: 4px; font-size: 1.05rem; margin-left: 10px;">${machineId}</p>`;
-
-                        // Display in same format as deburring: "• ✅ X/Y parameters within spec (Z%)"
-                        summary += `<p style="margin: 4px 0 4px 20px; color: ${color}; font-weight: 500;">• ${icon} ${passedParams}/${totalParams} parameters within spec (${passRate}%)</p>`;
+                        // Display summary below the table
+                        summary += `<p style="margin: 8px 0 4px 20px; color: ${color}; font-weight: 500;">• ${icon} ${passedParams}/${totalParams} parameters within spec (${passRate}%)</p>`;
+                        summary += `</div>`;
                     }
                 });
 
-                // ADD DETAILED VALUES TABLE INSIDE THE SAME SECTION
-                summary += `<div style="margin-top: 20px; padding: 20px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
-                summary += `<p style="font-weight: 700; color: #667eea; margin-bottom: 15px; font-size: 1.2rem;">📊 Detailed Measurement Values</p>`;
-
-                // Collect all machines
-                const allMachines = specValidation.filter(item => item.headers).map(item => item.machineId);
-
-                // Collect all unique merged headers and their sub-headers
-                const headerStructure = {};
-                specValidation.forEach(item => {
-                    if (item.headers) {
-                        Object.keys(item.headers).forEach(mergedHeader => {
-                            if (!headerStructure[mergedHeader]) {
-                                headerStructure[mergedHeader] = new Set();
-                            }
-                            Object.keys(item.headers[mergedHeader]).forEach(subHeader => {
-                                headerStructure[mergedHeader].add(subHeader);
-                            });
-                        });
-                    }
-                });
-
-                // Create table
-                summary += `<div style="overflow-x: auto;">`;
-                summary += `<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">`;
-
-                // Table header - First row (merged headers)
-                summary += `<thead>`;
-                summary += `<tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">`;
-                summary += `<th rowspan="2" style="padding: 12px; text-align: left; color: white; font-weight: 600; border: 1px solid rgba(255,255,255,0.3); min-width: 120px;">Machine #</th>`;
-
-                Object.keys(headerStructure).forEach(mergedHeader => {
-                    const subHeaderCount = headerStructure[mergedHeader].size;
-                    summary += `<th colspan="${subHeaderCount}" style="padding: 12px; text-align: center; color: white; font-weight: 600; border: 1px solid rgba(255,255,255,0.3);">${mergedHeader}</th>`;
-                });
-
-                summary += `</tr>`;
-
-                // Table header - Second row (sub-headers)
-                summary += `<tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">`;
-
-                Object.keys(headerStructure).forEach(mergedHeader => {
-                    Array.from(headerStructure[mergedHeader]).forEach(subHeader => {
-                        summary += `<th style="padding: 10px 8px; text-align: center; color: white; font-weight: 500; border: 1px solid rgba(255,255,255,0.3); font-size: 0.85rem; min-width: 100px;">${subHeader}</th>`;
-                    });
-                });
-
-                summary += `</tr>`;
-                summary += `</thead>`;
-
-                // Table body - Data rows
-                summary += `<tbody>`;
-
-                specValidation.forEach((item, rowIdx) => {
-                    if (item.headers) {
-                        const machineId = item.machineId;
-                        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#f8f9fa';
-
-                        summary += `<tr style="background: ${rowBg};">`;
-                        summary += `<td style="padding: 12px; font-weight: 600; color: #333; border: 1px solid #e0e0e0;">${machineId}</td>`;
-
-                        // Add values for each merged header and sub-header
-                        Object.keys(headerStructure).forEach(mergedHeader => {
-                            Array.from(headerStructure[mergedHeader]).forEach(subHeader => {
-                                const value = item.headers[mergedHeader] && item.headers[mergedHeader][subHeader]
-                                    ? item.headers[mergedHeader][subHeader]
-                                    : '-';
-
-                                // Check if value is within spec
-                                const numVal = parseFloat(value);
-                                const specMin = 0;
-                                const specMax = 0.2;
-                                let cellColor = '#333';
-                                let cellBg = 'transparent';
-
-                                if (!isNaN(numVal)) {
-                                    const isWithinSpec = numVal >= specMin && numVal <= specMax;
-                                    cellColor = isWithinSpec ? '#2e7d32' : '#c62828';
-                                    cellBg = isWithinSpec ? '#e8f5e9' : '#ffebee';
-                                }
-
-                                summary += `<td style="padding: 10px 8px; text-align: center; color: ${cellColor}; background: ${cellBg}; border: 1px solid #e0e0e0; font-weight: 500;">${value}</td>`;
-                            });
-                        });
-
-                        summary += `</tr>`;
-                    }
-                });
-
-                summary += `</tbody>`;
-                summary += `</table>`;
-                summary += `</div>`;
-
-                // Add legend
-                summary += `<div style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">`;
-                summary += `<div style="display: flex; align-items: center; gap: 8px;">`;
-                summary += `<div style="width: 20px; height: 20px; background: #e8f5e9; border: 2px solid #2e7d32; border-radius: 4px;"></div>`;
-                summary += `<span style="color: #666; font-size: 0.9rem;">Within Spec (0 - 0.2)</span>`;
-                summary += `</div>`;
-                summary += `<div style="display: flex; align-items: center; gap: 8px;">`;
-                summary += `<div style="width: 20px; height: 20px; background: #ffebee; border: 2px solid #c62828; border-radius: 4px;"></div>`;
-                summary += `<span style="color: #666; font-size: 0.9rem;">Out of Spec</span>`;
-                summary += `</div>`;
-                summary += `</div>`;
-                summary += `</div>`; // Close the detailed values table div
                 summary += `</div>`; // Close the specification compliance section
             } else if (isTranscodingData) {
                 // TRANSCODING DATA DISPLAY - Show detailed parameter headers
-                summary += `<div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4caf50;">`;
-                summary += `<p style="font-weight: 600; color: #2e7d32; margin-bottom: 10px;">📏 Specification Compliance</p>`;
+                summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+                summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 15px; font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">📏 Specification Compliance</p>`;
 
                 // Display main header from I4 if available
                 const firstItem = specValidation[0];
                 if (firstItem && firstItem.mainHeader) {
-                    summary += `<p style="font-weight: 600; color: #5a67d8; margin-top: 10px; margin-bottom: 8px; font-size: 1.05rem;">${firstItem.mainHeader}</p>`;
+                    summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 15px; margin-bottom: 12px; font-size: 1.1rem; padding-left: 8px; border-left: 4px solid #818cf8;">${firstItem.mainHeader}</p>`;
                 }
 
                 // Display each machine with its spec data
@@ -2127,7 +2403,7 @@ function generateSummary(file, data) {
                     const machineId = item.machineId || item.field;
 
                     // Machine header
-                    summary += `<p style="font-weight: 600; color: #667eea; margin-top: ${idx > 0 ? '15px' : '10px'}; margin-bottom: 8px; font-size: 1.05rem; margin-left: 10px;">${machineId}</p>`;
+                    summary += `<p style="font-weight: 600; color: #818cf8; margin-top: ${idx > 0 ? '15px' : '10px'}; margin-bottom: 8px; font-size: 1.05rem; margin-left: 10px;">${machineId}</p>`;
 
                     if (item.parameters && item.parameters.length > 0) {
                         // Count parameters and check compliance
@@ -2186,7 +2462,7 @@ function generateSummary(file, data) {
                             // Check compliance if we have numeric value and spec limits
                             let isWithinSpec = null;
                             let icon = '•';
-                            let color = '#333';
+                            let color = '#34d399'; // Match the green color of passing parameters
 
                             if (numVal !== null && param.usl && param.lsl) {
                                 totalParams++;
@@ -2198,10 +2474,10 @@ function generateSummary(file, data) {
                                     if (isWithinSpec) {
                                         passedParams++;
                                         icon = '✅';
-                                        color = '#2e7d32';
+                                        color = '#34d399';
                                     } else {
                                         icon = '❌';
-                                        color = '#c62828';
+                                        color = '#f87171';
                                         outOfSpecDetails.push({
                                             name: param.name,
                                             value: param.value,
@@ -2256,7 +2532,7 @@ function generateSummary(file, data) {
                                 totalParams++;
                                 passedParams++;
                                 icon = '✅';
-                                color = '#2e7d32';
+                                color = '#34d399';
                             }
 
                             // Display parameter with header, value, and spec
@@ -2299,7 +2575,7 @@ function generateSummary(file, data) {
                             const groupParams = paramsByParent[parentHeader];
 
                             // Display parent header
-                            summary += `<p style="font-weight: 600; color: #5a67d8; margin-top: 12px; margin-bottom: 6px; font-size: 1rem;">${parentHeader}</p>`;
+                            summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 12px; margin-bottom: 6px; font-size: 1rem;">${parentHeader}</p>`;
 
                             // Display each parameter in the group
                             groupParams.forEach(param => {
@@ -2320,7 +2596,7 @@ function generateSummary(file, data) {
                                 // Check compliance if we have numeric value and spec limits
                                 let isWithinSpec = null;
                                 let icon = '•';
-                                let color = '#333';
+                                let color = '#e2e8f0';
 
                                 if (numVal !== null && param.usl && param.lsl) {
                                     totalParams++;
@@ -2332,10 +2608,10 @@ function generateSummary(file, data) {
                                         if (isWithinSpec) {
                                             passedParams++;
                                             icon = '✅';
-                                            color = '#2e7d32';
+                                            color = '#34d399';
                                         } else {
                                             icon = '❌';
-                                            color = '#c62828';
+                                            color = '#f87171';
                                             outOfSpecDetails.push({
                                                 name: param.name,
                                                 value: param.value,
@@ -2353,10 +2629,10 @@ function generateSummary(file, data) {
                                         if (isWithinSpec) {
                                             passedParams++;
                                             icon = '✅';
-                                            color = '#2e7d32';
+                                            color = '#34d399';
                                         } else {
                                             icon = '❌';
-                                            color = '#c62828';
+                                            color = '#f87171';
                                             outOfSpecDetails.push({
                                                 name: param.name,
                                                 value: param.value,
@@ -2369,7 +2645,7 @@ function generateSummary(file, data) {
                                     totalParams++;
                                     passedParams++;
                                     icon = '✅';
-                                    color = '#2e7d32';
+                                    color = '#34d399';
                                 }
 
                                 // Display parameter with header, value, and spec
@@ -2413,25 +2689,25 @@ function generateSummary(file, data) {
                         if (totalParams > 0) {
                             const passRate = ((passedParams / totalParams) * 100).toFixed(1);
                             const summaryIcon = passRate >= 95 ? '✅' : passRate >= 80 ? '⚠️' : '❌';
-                            const summaryColor = passRate >= 95 ? '#2e7d32' : passRate >= 80 ? '#f57c00' : '#c62828';
+                            const summaryColor = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
 
                             summary += `<p style="margin: 12px 0 4px 20px; color: ${summaryColor}; font-weight: 600; font-size: 1rem; padding-top: 8px; border-top: 1px solid #e0e0e0;">Summary: ${summaryIcon} ${passedParams}/${totalParams} parameters within spec (${passRate}%)</p>`;
                         } else {
                             // If no numeric params, just show that data is present
                             const paramCount = item.parameters.length;
-                            summary += `<p style="margin: 12px 0 4px 20px; color: #2e7d32; font-weight: 600; padding-top: 8px; border-top: 1px solid #e0e0e0;">Summary: ✅ ${paramCount} parameters recorded</p>`;
+                            summary += `<p style="margin: 12px 0 4px 20px; color: #34d399; font-weight: 600; padding-top: 8px; border-top: 1px solid #475569;">Summary: ✅ ${paramCount} parameters recorded</p>`;
                         }
                     } else {
                         // No parameters found - show debug info
-                        summary += `<p style="margin: 4px 0 4px 20px; color: #666; font-weight: 500;">• ℹ️ No parameter data available</p>`;
+                        summary += `<p style="margin: 4px 0 4px 20px; color: #94a3b8; font-weight: 500;">• ℹ️ No parameter data available</p>`;
                     }
                 });
 
                 summary += `</div>`;
             } else {
                 // DEBURRING DATA DISPLAY - No header, just machine names
-                summary += `<div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4caf50;">`;
-                summary += `<p style="font-weight: 600; color: #2e7d32; margin-bottom: 10px;">📏 Specification Compliance</p>`;
+                summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+                summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 15px; font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">📏 Specification Compliance</p>`;
 
                 // Group by machine
                 const byMachine = {};
@@ -2446,12 +2722,12 @@ function generateSummary(file, data) {
                 // Display grouped by machine
                 Object.keys(byMachine).forEach(machine => {
                     if (machine !== 'General') {
-                        summary += `<p style="font-weight: 600; color: #667eea; margin-top: 10px; margin-bottom: 4px; font-size: 1.05rem; margin-left: 10px;">${machine}</p>`;
+                        summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 10px; margin-bottom: 4px; font-size: 1.05rem; margin-left: 10px;">${machine}</p>`;
                     }
 
                     byMachine[machine].forEach(item => {
                         const icon = item.status === 'good' ? '✅' : item.status === 'warning' ? '⚠️' : '❌';
-                        const color = item.status === 'good' ? '#2e7d32' : item.status === 'warning' ? '#f57c00' : '#c62828';
+                        const color = item.status === 'good' ? '#34d399' : item.status === 'warning' ? '#fb923c' : '#f87171';
 
                         // Remove machine ID from message since it's in the header
                         let displayMessage = item.message;
@@ -2470,8 +2746,8 @@ function generateSummary(file, data) {
 
         // CALIBRATION DATA - DETAILED MACHINE-CENTRIC VIEW
         if (isCalibrationData && specValidation.length > 0) {
-            summary += `<div style="margin-top: 20px; padding: 20px; background: #e8f5e9; border-radius: 12px; border-left: 4px solid #4caf50;">`;
-            summary += `<p style="font-weight: 700; color: #2e7d32; margin-bottom: 20px; font-size: 1.3rem;">📋 Detailed Calibration Results by Machine</p>`;
+            summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+            summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 25px; font-size: 1.4rem; display: flex; align-items: center; gap: 10px;">📋 Detailed Calibration Results by Machine</p>`;
 
             // Group by machine
             const byMachine = {};
@@ -2501,17 +2777,17 @@ function generateSummary(file, data) {
                 });
 
                 const passRate = totalNozzles > 0 ? ((passedNozzles / totalNozzles) * 100).toFixed(1) : 0;
-                const statusColor = passRate >= 95 ? '#2e7d32' : passRate >= 80 ? '#f57c00' : '#c62828';
-                const statusBg = passRate >= 95 ? '#e8f5e9' : passRate >= 80 ? '#fff3e0' : '#ffebee';
+                const statusColor = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
+                const statusBg = passRate >= 95 ? 'rgba(52, 211, 153, 0.1)' : passRate >= 80 ? 'rgba(251, 146, 60, 0.1)' : 'rgba(248, 113, 113, 0.1)';
 
-                summary += `<div style="margin-top: ${idx > 0 ? '25px' : '0'}; padding: 18px; background: white; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
+                summary += `<div style="margin-top: ${idx > 0 ? '25px' : '0'}; padding: 22px; background: #0f172a; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
 
                 // Machine header with status badge
-                summary += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 2px solid #e0e0e0;">`;
-                summary += `<h3 style="margin: 0; color: #667eea; font-size: 1.3rem; font-weight: 700;">🔧 ${machine}</h3>`;
+                summary += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 2px solid #475569;">`;
+                summary += `<h3 style="margin: 0; color: #818cf8; font-size: 1.3rem; font-weight: 700;">🔧 ${machine}</h3>`;
                 summary += `<div style="background: ${statusBg}; padding: 8px 16px; border-radius: 20px; border: 2px solid ${statusColor};">`;
                 summary += `<span style="color: ${statusColor}; font-weight: 700; font-size: 1.1rem;">${passRate}% Pass</span>`;
-                summary += `<span style="color: #666; font-size: 0.9rem; margin-left: 8px;">(${passedNozzles}/${totalNozzles} nozzles)</span>`;
+                summary += `<span style="color: #94a3b8; font-size: 0.9rem; margin-left: 8px;">(${passedNozzles}/${totalNozzles} nozzles)</span>`;
                 summary += `</div>`;
                 summary += `</div>`;
 
@@ -2527,12 +2803,12 @@ function generateSummary(file, data) {
                 // Display each calibration group
                 Object.keys(byGroup).forEach((groupName, groupIdx) => {
                     summary += `<div style="margin-top: ${groupIdx > 0 ? '15px' : '0'};">`;
-                    summary += `<p style="font-weight: 600; color: #5a67d8; margin-bottom: 10px; font-size: 1.05rem; padding-left: 8px; border-left: 3px solid #5a67d8;">📊 ${groupName}</p>`;
+                    summary += `<p style="font-weight: 600; color: #818cf8; margin-bottom: 10px; font-size: 1.05rem; padding-left: 8px; border-left: 3px solid #818cf8;">📊 ${groupName}</p>`;
 
                     byGroup[groupName].forEach(item => {
                         const icon = item.status === 'good' ? '✅' : item.status === 'warning' ? '⚠️' : '❌';
-                        const color = item.status === 'good' ? '#2e7d32' : item.status === 'warning' ? '#f57c00' : '#c62828';
-                        const bgColor = item.status === 'good' ? '#f1f8f4' : item.status === 'warning' ? '#fff8e1' : '#fef1f1';
+                        const color = item.status === 'good' ? '#34d399' : item.status === 'warning' ? '#fb923c' : '#f87171';
+                        const bgColor = item.status === 'good' ? 'rgba(52, 211, 153, 0.1)' : item.status === 'warning' ? 'rgba(251, 146, 60, 0.1)' : 'rgba(248, 113, 113, 0.1)';
 
                         const spec = item.spec;
                         const parameter = item.parameter;
@@ -2547,7 +2823,7 @@ function generateSummary(file, data) {
                         summary += `<div style="text-align: right;">`;
                         summary += `<span style="color: ${color}; font-weight: 700; font-size: 1.05rem;">${passedNozzles}/${totalNozzles} nozzles</span>`;
                         if (spec) {
-                            summary += `<span style="color: #666; font-size: 0.85rem; margin-left: 8px;">(Spec: ${spec.target}±${spec.tolerance}${spec.unit || ''})</span>`;
+                            summary += `<span style="color: #94a3b8; font-size: 0.85rem; margin-left: 8px;">(Spec: ${spec.target}±${spec.tolerance}${spec.unit || ''})</span>`;
                         }
                         summary += `</div>`;
                         summary += `</div>`;
@@ -2565,21 +2841,21 @@ function generateSummary(file, data) {
 
         // Out-of-Spec Failures
         if (specFailures.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #ffebee; border-radius: 8px; border-left: 4px solid #f44336;">`;
-            summary += `<p style="font-weight: 600; color: #c62828; margin-bottom: 10px;">❌ Out-of-Specification Values</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #991b1b;">`;
+            summary += `<p style="font-weight: 700; color: #f87171; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">❌ Out-of-Specification Values</p>`;
             specFailures.forEach(item => {
-                summary += `<p style="margin: 8px 0; color: #c62828;">${item.message}</p>`;
+                summary += `<p style="margin: 8px 0; color: #fca5a5;">${item.message}</p>`;
             });
             summary += `</div>`;
         }
 
         // Compliance/Pass-Fail Analysis
         if (compliance.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;">`;
-            summary += `<p style="font-weight: 600; color: #1565c0; margin-bottom: 10px;">✓ Pass/Fail Status</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #3b82f6;">`;
+            summary += `<p style="font-weight: 700; color: #60a5fa; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">✓ Pass/Fail Status</p>`;
             compliance.forEach(item => {
                 const icon = item.status === 'good' ? '✅' : item.status === 'warning' ? '⚠️' : '❌';
-                const color = item.status === 'good' ? '#1565c0' : item.status === 'warning' ? '#f57c00' : '#c62828';
+                const color = item.status === 'good' ? '#60a5fa' : item.status === 'warning' ? '#fb923c' : '#f87171';
                 summary += `<p style="margin: 8px 0; color: ${color};">${icon} ${item.message}</p>`;
             });
             summary += `</div>`;
@@ -2589,30 +2865,30 @@ function generateSummary(file, data) {
 
         // Numeric Analysis
         if (numeric.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #fff3e0; border-radius: 8px; border-left: 4px solid #ff9800;">`;
-            summary += `<p style="font-weight: 600; color: #e65100; margin-bottom: 10px;">📊 Numeric Data Analysis</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #78350f 0%, #92400e 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #c2410c;">`;
+            summary += `<p style="font-weight: 700; color: #fb923c; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">📊 Numeric Data Analysis</p>`;
             numeric.forEach(item => {
-                summary += `<p style="margin: 8px 0;">• ${item.message}</p>`;
+                summary += `<p style="margin: 8px 0; color: #e2e8f0;">• ${item.message}</p>`;
             });
             summary += `</div>`;
         }
 
         // Categorical Data
         if (categorical.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #f3e5f5; border-radius: 8px; border-left: 4px solid #9c27b0;">`;
-            summary += `<p style="font-weight: 600; color: #6a1b9a; margin-bottom: 10px;">🏷️ Categorical Data</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #581c87 0%, #6b21a8 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #9333ea;">`;
+            summary += `<p style="font-weight: 700; color: #c084fc; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">🏷️ Categorical Data</p>`;
             categorical.forEach(item => {
-                summary += `<p style="margin: 8px 0;">• ${item.message}</p>`;
+                summary += `<p style="margin: 8px 0; color: #e2e8f0;">• ${item.message}</p>`;
             });
             summary += `</div>`;
         }
 
         // Date Ranges
         if (dates.length > 0) {
-            summary += `<div style="margin-top: 15px; padding: 15px; background: #fce4ec; border-radius: 8px; border-left: 4px solid #e91e63;">`;
-            summary += `<p style="font-weight: 600; color: #880e4f; margin-bottom: 10px;">📅 Date Ranges</p>`;
+            summary += `<div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #831843 0%, #9f1239 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 1px solid #be123c;">`;
+            summary += `<p style="font-weight: 700; color: #fb7185; margin-bottom: 15px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">📅 Date Ranges</p>`;
             dates.forEach(item => {
-                summary += `<p style="margin: 8px 0;">• ${item.message}</p>`;
+                summary += `<p style="margin: 8px 0; color: #e2e8f0;">• ${item.message}</p>`;
             });
             summary += `</div>`;
         }
@@ -2630,7 +2906,7 @@ function generateSummary(file, data) {
         const preview = content.substring(0, 500).trim();
 
         summary += `<p style="margin-top: 15px;"><strong>📄 Content Preview:</strong></p>`;
-        summary += `<div style="margin-top: 10px; padding: 15px; background: #f0f4ff; border-radius: 8px; font-family: monospace; font-size: 0.9rem; max-height: 300px; overflow-y: auto; white-space: pre-wrap;">`;
+        summary += `<div style="margin-top: 10px; padding: 15px; background: #1e293b; border-radius: 8px; font-family: monospace; font-size: 0.9rem; max-height: 300px; overflow-y: auto; white-space: pre-wrap; color: #e2e8f0;">`;
         summary += preview.replace(/</g, '&lt;').replace(/>/g, '&gt;');
         if (content.length > 500) {
             summary += '...';
