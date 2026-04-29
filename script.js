@@ -2451,39 +2451,79 @@ function analyzeExcelContent(workbook, fileName = '') {
         }
 
         // ORIGINAL FORMAT PROCESSING (for deburring and other files)
-        // Find the first non-empty column (starting from column I, index 8)
+        // Find the first non-empty column - try multiple starting points for versatility
         let firstDataCol = -1;
-        for (let col = 8; col < 100; col++) {
-            let hasData = false;
-            for (let row = 0; row < Math.min(20, jsonData.length); row++) {
-                if (jsonData[row] && jsonData[row][col]) {
-                    hasData = true;
+        let nozzleRowIndex = -1;
+
+        // Try different starting columns: I(8), H(7), J(9), G(6), F(5)
+        const startColumns = [8, 7, 9, 6, 5];
+
+        for (const startCol of startColumns) {
+            console.log(`Trying to find data starting from column ${String.fromCharCode(65 + startCol)} (index ${startCol})...`);
+
+            // Find first non-empty column from this starting point
+            let tempFirstDataCol = -1;
+            for (let col = startCol; col < 100; col++) {
+                let hasData = false;
+                for (let row = 0; row < Math.min(20, jsonData.length); row++) {
+                    if (jsonData[row] && jsonData[row][col]) {
+                        hasData = true;
+                        break;
+                    }
+                }
+                if (hasData) {
+                    tempFirstDataCol = col;
                     break;
                 }
             }
-            if (hasData) {
-                firstDataCol = col;
+
+            if (tempFirstDataCol === -1) continue;
+
+            // Try to find nozzle row with this column - check rows 10, 11, 12 (indices 9, 10, 11)
+            let tempNozzleRowIndex = -1;
+            for (let i = 9; i <= 11; i++) {
+                if (i >= jsonData.length) continue;
+                const row = jsonData[i];
+                if (row) {
+                    // Check if this row starts with 1, 2, 3 sequence in the data columns
+                    const firstThree = [row[tempFirstDataCol], row[tempFirstDataCol + 1], row[tempFirstDataCol + 2]];
+                    if (firstThree[0] === 1 && firstThree[1] === 2 && firstThree[2] === 3) {
+                        tempNozzleRowIndex = i;
+                        console.log(`Found nozzle sequence at row ${i + 1} (Excel row ${i + 1}), column ${String.fromCharCode(65 + tempFirstDataCol)}`);
+                        break;
+                    }
+                }
+            }
+
+            // If not found in rows 10-12, try the broader search (rows 0-20)
+            if (tempNozzleRowIndex === -1) {
+                for (let i = 0; i < Math.min(20, jsonData.length); i++) {
+                    const row = jsonData[i];
+                    if (row) {
+                        // Check if this row starts with 1, 2, 3 sequence in the data columns
+                        const firstThree = [row[tempFirstDataCol], row[tempFirstDataCol + 1], row[tempFirstDataCol + 2]];
+                        if (firstThree[0] === 1 && firstThree[1] === 2 && firstThree[2] === 3) {
+                            tempNozzleRowIndex = i;
+                            console.log(`Found nozzle sequence at row ${i + 1} (Excel row ${i + 1}), column ${String.fromCharCode(65 + tempFirstDataCol)}`);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // If we found a valid nozzle row, use this configuration
+            if (tempNozzleRowIndex !== -1) {
+                firstDataCol = tempFirstDataCol;
+                nozzleRowIndex = tempNozzleRowIndex;
+                console.log(`✓ Found data at column ${String.fromCharCode(65 + firstDataCol)} (index ${firstDataCol}), nozzle row at Excel row ${nozzleRowIndex + 1}`);
                 break;
             }
         }
 
-        if (firstDataCol === -1) {
+        if (firstDataCol === -1 || nozzleRowIndex === -1) {
             // No data found, skip this sheet
+            console.log('✗ No valid data structure found (could not find nozzle sequence 1, 2, 3)');
             return;
-        }
-
-        // Find the row with nozzle numbers (sequence starting from 1, 2, 3...)
-        let nozzleRowIndex = -1;
-        for (let i = 0; i < Math.min(20, jsonData.length); i++) {
-            const row = jsonData[i];
-            if (row) {
-                // Check if this row starts with 1, 2, 3 sequence in the data columns
-                const firstThree = [row[firstDataCol], row[firstDataCol + 1], row[firstDataCol + 2]];
-                if (firstThree[0] === 1 && firstThree[1] === 2 && firstThree[2] === 3) {
-                    nozzleRowIndex = i;
-                    break;
-                }
-            }
         }
 
         // Find header row (row before nozzle numbers with parameter names)
@@ -2496,6 +2536,86 @@ function analyzeExcelContent(workbook, fileName = '') {
                     if (cellStr.includes('pressure') || cellStr.includes('distance') || cellStr.includes('angle') || cellStr.includes('speed') || cellStr.includes('numeric') || cellStr.includes('go/no-go')) {
                         headerRowIndex = i;
                         break;
+                    }
+                }
+            }
+        }
+
+        // Look for specs in rows above the nozzle row (merged cells or spec rows)
+        // ONLY look in columns where nozzle numbering starts (firstDataCol onwards)
+        // Check rows from nozzleRowIndex-3 to nozzleRowIndex-1
+        const specRowsAbove = {};
+
+        // First, identify which columns have nozzle numbers (1, 2, 3, etc.)
+        const nozzleColumns = new Set();
+        if (nozzleRowIndex >= 0 && jsonData[nozzleRowIndex]) {
+            const nozzleRow = jsonData[nozzleRowIndex];
+            for (let col = 0; col < nozzleRow.length; col++) {
+                const val = nozzleRow[col];
+                // Check if this cell contains a nozzle number (1-30)
+                if (val !== undefined && val !== '' && !isNaN(val) && val >= 1 && val <= 30) {
+                    nozzleColumns.add(col);
+                }
+            }
+            console.log(`Found nozzle numbers in columns: ${Array.from(nozzleColumns).map(c => String.fromCharCode(65 + c)).join(', ')}`);
+        }
+
+        // Now look for specs ONLY in rows above the nozzle row and ONLY in columns that have nozzle numbers
+        if (nozzleRowIndex > 0 && nozzleColumns.size > 0) {
+            // Get the min and max column indices where nozzles appear
+            const minNozzleCol = Math.min(...Array.from(nozzleColumns));
+            const maxNozzleCol = Math.max(...Array.from(nozzleColumns));
+
+            for (let specRow = Math.max(0, nozzleRowIndex - 3); specRow < nozzleRowIndex; specRow++) {
+                const row = jsonData[specRow];
+                if (row) {
+                    // Only scan columns where nozzles appear (and a bit before/after for merged cells)
+                    for (let col = Math.max(0, minNozzleCol - 1); col <= Math.min(maxNozzleCol + 1, row.length - 1); col++) {
+                        const cell = row[col];
+                        if (cell) {
+                            const cellStr = String(cell).trim();
+
+                            // Look for spec pattern like "2.5 ± 0.2 Bar" or "spec: 2.5 ± 0.2 Bar"
+                            const specMatch = cellStr.match(/(?:spec[:\s-]*)?(\d+\.?\d*)\s*[±]\s*(\d+\.?\d*)\s*([a-zA-Z°]+)?/i);
+                            if (specMatch) {
+                                const target = parseFloat(specMatch[1]);
+                                const tolerance = parseFloat(specMatch[2]);
+                                const unit = specMatch[3] || '';
+
+                                // Store spec for this column
+                                specRowsAbove[`col${col}`] = {
+                                    target: target,
+                                    tolerance: tolerance,
+                                    unit: unit,
+                                    min: target - tolerance,
+                                    max: target + tolerance,
+                                    rowIndex: specRow,
+                                    colIndex: col,
+                                    originalCell: cellStr
+                                };
+                                console.log(`Found spec in row ${specRow + 1}, col ${col} (${String.fromCharCode(65 + col)}): ${cellStr} -> ${target}±${tolerance}${unit}`);
+
+                                // For merged cells, also apply this spec to nearby nozzle columns
+                                // Check if this spec should apply to multiple columns (merged cell scenario)
+                                for (let nozzleCol of nozzleColumns) {
+                                    // If nozzle column is within 2 columns of the spec, apply it
+                                    if (Math.abs(nozzleCol - col) <= 2 && !specRowsAbove[`col${nozzleCol}`]) {
+                                        specRowsAbove[`col${nozzleCol}`] = {
+                                            target: target,
+                                            tolerance: tolerance,
+                                            unit: unit,
+                                            min: target - tolerance,
+                                            max: target + tolerance,
+                                            rowIndex: specRow,
+                                            colIndex: col,
+                                            originalCell: cellStr,
+                                            propagated: true
+                                        };
+                                        console.log(`  → Propagated spec to nozzle column ${nozzleCol} (${String.fromCharCode(65 + nozzleCol)})`);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2578,13 +2698,9 @@ function analyzeExcelContent(workbook, fileName = '') {
                         // Parse comma-separated machine IDs
                         const machineIds = machineIdItem.value.split(',').map(id => id.trim());
 
-                        // Map based on row index or gun type
-                        // Typically: first machine = BG, second machine = CG
-                        if (gunType === 'BG' && machineIds.length > 0) {
-                            machineId = machineIds[0];
-                        } else if (gunType === 'CG' && machineIds.length > 1) {
-                            machineId = machineIds[1];
-                        } else if (machineIds.length > rowIdx) {
+                        // Map based on row index - use the order from the file
+                        // First data row gets first machine ID, second data row gets second machine ID, etc.
+                        if (machineIds.length > rowIdx) {
                             machineId = machineIds[rowIdx];
                         }
                     }
@@ -2651,14 +2767,25 @@ function analyzeExcelContent(workbook, fileName = '') {
                     // Check if there's a spec for this column
                     let applicableSpec = null;
 
-                    // First, try exact column match
-                    if (specs[`col${colIndex}`]) {
+                    // First, check specs from rows above the nozzle row (merged cells)
+                    if (specRowsAbove[`col${colIndex}`]) {
+                        applicableSpec = specRowsAbove[`col${colIndex}`];
+                        console.log(`Using spec from row above for column ${colIndex}: ${applicableSpec.target}±${applicableSpec.tolerance}${applicableSpec.unit}`);
+                    }
+
+                    // If not found, try exact column match from detectSpecifications
+                    if (!applicableSpec && specs[`col${colIndex}`]) {
                         applicableSpec = specs[`col${colIndex}`];
                     }
 
                     // If not found, look for specs in nearby columns (±2 columns)
                     if (!applicableSpec) {
                         for (let offset = -2; offset <= 2; offset++) {
+                            if (specRowsAbove[`col${colIndex + offset}`]) {
+                                applicableSpec = specRowsAbove[`col${colIndex + offset}`];
+                                console.log(`Using spec from nearby column ${colIndex + offset} (offset ${offset}): ${applicableSpec.target}±${applicableSpec.tolerance}${applicableSpec.unit}`);
+                                break;
+                            }
                             if (specs[`col${colIndex + offset}`]) {
                                 applicableSpec = specs[`col${colIndex + offset}`];
                                 break;
@@ -2677,12 +2804,61 @@ function analyzeExcelContent(workbook, fileName = '') {
                         }
                     }
 
+                    // Parse spec from header name if it contains spec info like "Nozzle Pressure (Numeric) Bar"
+                    if (!applicableSpec && header) {
+                        const headerStr = String(header).trim();
+                        const headerSpecMatch = headerStr.match(/(\d+\.?\d*)\s*[±]\s*(\d+\.?\d*)\s*([a-zA-Z°]+)?/i);
+                        if (headerSpecMatch) {
+                            const target = parseFloat(headerSpecMatch[1]);
+                            const tolerance = parseFloat(headerSpecMatch[2]);
+                            const unit = headerSpecMatch[3] || '';
+
+                            applicableSpec = {
+                                target: target,
+                                tolerance: tolerance,
+                                unit: unit,
+                                min: target - tolerance,
+                                max: target + tolerance,
+                                rowIndex: headerRowIndex,
+                                colIndex: colIndex,
+                                originalCell: headerStr
+                            };
+                            console.log(`Parsed spec from header "${headerStr}": ${target}±${tolerance}${unit}`);
+                        }
+                    }
+
                     if (applicableSpec && applicableSpec.min !== null && applicableSpec.max !== null) {
                         // Parse the original spec cell for special nozzle specifications
-                        let groupedSpecs = []; // Array of {count or nozzles, spec} objects
+                        let groupedSpecs = []; // Array of {count or nozzles, spec, machineType} objects
 
                         if (applicableSpec.originalCell) {
                             const specText = applicableSpec.originalCell;
+
+                            // Pattern 0: Machine-specific nozzle specs like "BG Spec: (Mic 3 Nozzles 6 & 18 0.3 ± 0.02Mpa)"
+                            const machineSpecPattern = /(BG|CG)\s+Spec:\s*\([^)]*Nozzles?\s+([0-9\s&,]+)\s+(\d+\.?\d*)\s*[±]\s*(\d+\.?\d*)\s*([a-zA-Z]+)/i;
+                            const machineSpecMatch = specText.match(machineSpecPattern);
+                            if (machineSpecMatch) {
+                                const machineType = machineSpecMatch[1]; // BG or CG
+                                const nozzleStr = machineSpecMatch[2]; // "6 & 18" or "6, 18"
+                                // Parse nozzle numbers - handle both "&" and "," separators
+                                const nozzleNumbers = nozzleStr.split(/[&,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+                                const target = parseFloat(machineSpecMatch[3]);
+                                const tolerance = parseFloat(machineSpecMatch[4]);
+                                const unit = machineSpecMatch[5];
+
+                                groupedSpecs.push({
+                                    nozzles: nozzleNumbers,
+                                    machineType: machineType, // Store which machine this applies to
+                                    spec: {
+                                        target: target,
+                                        tolerance: tolerance,
+                                        unit: unit,
+                                        min: target - tolerance,
+                                        max: target + tolerance
+                                    }
+                                });
+                                console.log(`Found machine-specific spec for ${machineType}: nozzles ${nozzleNumbers.join(', ')} = ${target}±${tolerance}${unit}`);
+                            }
 
                             // Pattern 1: Explicit nozzle numbers like "4 Nozzle (7,11,12,14) Spec- 90 ± 3°"
                             const explicitMatch = specText.match(/nozzle\s*\(([0-9,\s]+)\)[^0-9]*(\d+\.?\d*)\s*[±]\s*(\d+\.?\d*)\s*([a-zA-Z°]+)/i);
@@ -2756,7 +2932,17 @@ function analyzeExcelContent(workbook, fileName = '') {
                             let explicitSpec = null;
                             groupedSpecs.forEach(group => {
                                 if (group.nozzles && group.nozzles.includes(identifier)) {
-                                    explicitSpec = group.spec;
+                                    // If this is a machine-specific spec, only apply it to the matching machine
+                                    if (group.machineType) {
+                                        // Check if current machine matches the spec's machine type
+                                        if (gunType && gunType.toUpperCase() === group.machineType.toUpperCase()) {
+                                            explicitSpec = group.spec;
+                                            console.log(`Applying ${group.machineType} spec to nozzle ${identifier}: ${group.spec.target}±${group.spec.tolerance}`);
+                                        }
+                                    } else {
+                                        // No machine type specified, apply to all machines
+                                        explicitSpec = group.spec;
+                                    }
                                 }
                             });
 

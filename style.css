@@ -357,6 +357,67 @@ header p {
     box-shadow: 0 8px 24px rgba(192, 132, 252, 0.4);
 }
 
+/* Compact table styles for calibration/polishing data */
+.summary-card table {
+    font-size: 0.75rem !important;
+    width: 100% !important;
+}
+
+.summary-card table th {
+    padding: 6px 4px !important;
+    font-size: 0.7rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+.summary-card table td {
+    padding: 6px 4px !important;
+    font-size: 0.7rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+/* Make the table container scrollable horizontally if needed */
+.summary-card div[style*="overflow-x: auto"] {
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Reduce padding in table containers */
+.summary-card>div>div {
+    padding: 12px !important;
+}
+
+/* Compact the merged header cells */
+.summary-card table thead tr:first-child th {
+    font-size: 0.75rem !important;
+    padding: 8px 4px !important;
+}
+
+/* Compact the sub-header cells */
+.summary-card table thead tr:last-child th {
+    font-size: 0.65rem !important;
+    padding: 6px 3px !important;
+}
+
+/* Reduce spacing in spec validation sections */
+.summary-card div[style*="margin-top: 25px"] {
+    margin-top: 15px !important;
+}
+
+.summary-card div[style*="padding: 25px"] {
+    padding: 15px !important;
+}
+
+.summary-card div[style*="padding: 20px"] {
+    padding: 12px !important;
+}
+
 @media (max-width: 768px) {
     header h1 {
         font-size: 2rem;
@@ -374,5 +435,17 @@ header p {
     .btn {
         width: 100%;
         justify-content: center;
+    }
+
+    /* Even more compact on mobile */
+    .summary-card table {
+        font-size: 0.65rem !important;
+    }
+
+    .summary-card table th,
+    .summary-card table td {
+        padding: 4px 2px !important;
+        font-size: 0.6rem !important;
+        max-width: 80px;
     }
 }
