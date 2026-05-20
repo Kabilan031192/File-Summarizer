@@ -665,6 +665,135 @@ function extractMetadataDeburring(jsonData) {
     return metadata;
 }
 
+// Extract metadata for CNC files - returns empty (no global metadata for CNC)
+function extractMetadataCNC(jsonData) {
+    const metadata = [];
+    console.log('=== Starting CNC Metadata Extraction ===');
+
+    // CNC files don't have global metadata
+    // Each machine has its own metadata shown in its own section
+    // Return empty array so no "Document Metadata" section appears
+
+    console.log(`=== Total CNC metadata items found: ${metadata.length} ===`);
+    return metadata;
+}
+
+// Extract metadata for Blasting files - returns global metadata from columns A-B
+function extractMetadataBlasting(jsonData) {
+    const metadata = [];
+    console.log('=== Starting Blasting Metadata Extraction ===');
+
+    // Global metadata is in columns A-B, rows 1-6
+    // Row 1: Process, Row 2: Stage, Row 3: Program, Row 4: Site, Row 5: Last Updated, Row 6: Updated By
+    const metadataRows = [
+        { row: 0, key: 'Process' },
+        { row: 1, key: 'Stage' },
+        { row: 2, key: 'Program' },
+        { row: 3, key: 'Site' },
+        { row: 4, key: 'Last Updated' },
+        { row: 5, key: 'Updated By' }
+    ];
+
+    metadataRows.forEach(({ row, key }) => {
+        if (jsonData[row] && jsonData[row][1]) {
+            const value = String(jsonData[row][1]).trim();
+            if (value) {
+                metadata.push({ key, value });
+            }
+        }
+    });
+
+    console.log(`=== Total Blasting metadata items found: ${metadata.length} ===`);
+    return metadata;
+}
+
+// Convert Excel date serial number to readable date
+function excelDateToJSDate(serial) {
+    if (!serial || isNaN(serial)) return serial;
+
+    // Excel date serial number starts from 1900-01-01
+    const excelEpoch = new Date(1899, 11, 30);
+    const jsDate = new Date(excelEpoch.getTime() + serial * 86400000);
+
+    // Format as DD/MM/YYYY
+    const day = String(jsDate.getDate()).padStart(2, '0');
+    const month = String(jsDate.getMonth() + 1).padStart(2, '0');
+    const year = jsDate.getFullYear();
+
+    return `${day}/${month}/${year}`;
+}
+
+// Check if a value passes the specification
+function checkCNCSpec(value, spec) {
+    if (!spec || !value) return null;
+
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) return null;
+
+    // Parse spec patterns:
+    // "≤ 0.006mm" or "<=0.006mm" - less than or equal
+    // "≥ 2300 N" or "≧2300 N" or ">=2300" - greater than or equal
+    // "@ 24,000rpm ≤ 7m/s²" - extract the limit
+
+    const specStr = String(spec).trim();
+
+    // Match ≤ or <= patterns (less than or equal)
+    const lteMatch = specStr.match(/[≤<]\s*=?\s*([\d,]+\.?\d*)/);
+    if (lteMatch) {
+        const limit = parseFloat(lteMatch[1].replace(/,/g, ''));
+        return numValue <= limit;
+    }
+
+    // Match ≥, ≧, or >= patterns (greater than or equal)
+    // ≥ is U+2265, ≧ is U+2267 - both mean greater than or equal
+    const gteMatch = specStr.match(/[≥≧>]\s*=?\s*([\d,]+\.?\d*)/);
+    if (gteMatch) {
+        const limit = parseFloat(gteMatch[1].replace(/,/g, ''));
+        return numValue >= limit;
+    }
+
+    return null; // Cannot determine pass/fail
+}
+
+// Extract metadata headers for CNC files (from rows 3-5, columns B-P)
+function extractCNCMetadataHeaders(jsonData) {
+    const headers = [];
+    console.log('=== Extracting CNC Metadata Headers ===');
+
+    const headerRow1 = jsonData[2] || []; // Row 3
+    const headerRow2 = jsonData[3] || []; // Row 4
+    const headerRow3 = jsonData[4] || []; // Row 5
+
+    // Process columns B through P (indices 1-15)
+    for (let col = 1; col <= 15; col++) {
+        let headerName = '';
+
+        // Try to get header from row 3 first
+        if (headerRow1[col]) {
+            headerName = String(headerRow1[col]).trim();
+        }
+        // If empty, try row 4
+        if (!headerName && headerRow2[col]) {
+            headerName = String(headerRow2[col]).trim();
+        }
+        // If still empty, try row 5
+        if (!headerName && headerRow3[col]) {
+            headerName = String(headerRow3[col]).trim();
+        }
+
+        if (headerName && headerName !== '/' && headerName !== 'No.') {
+            headers.push({
+                col: col,
+                name: headerName,
+                colLetter: String.fromCharCode(65 + col)
+            });
+        }
+    }
+
+    console.log(`Found ${headers.length} metadata headers for CNC file`);
+    return headers;
+}
+
 // Extract metadata dynamically from Excel files (GENERIC - fallback)
 function extractMetadata(jsonData) {
     const metadata = [];
@@ -907,9 +1036,13 @@ function analyzeExcelContent(workbook, fileName = '') {
     const isDePu = fileNameLower.includes('de-pu');
     const isSplit = fileNameLower.includes('split');
     const isGoldPad = fileNameLower.includes('gold pad') || fileNameLower.includes('goldpad');
+    const isCNC = fileNameLower.includes('cnc');
+    const isBlasting = fileNameLower.includes('blasting');
 
     console.log(`=== Analyzing file: ${fileName} ===`);
-    if (isGoldPad) {
+    if (isCNC) {
+        console.log(`File type: CNC (Machine Operation Check List)`);
+    } else if (isGoldPad) {
         console.log(`File type: GOLD PAD (Similar to DE-ANO, extends to column U)`);
     } else if (is2DBarcode) {
         console.log(`File type: 2D BARCODE (Similar to DE-ANO, extends to column U)`);
@@ -935,7 +1068,13 @@ function analyzeExcelContent(workbook, fileName = '') {
 
         // Extract metadata based on file type
         let metadata = [];
-        if (isGoldPad) {
+        if (isCNC) {
+            // For CNC files, use CNC-specific metadata extraction
+            metadata = extractMetadataCNC(jsonData);
+        } else if (isBlasting) {
+            // For Blasting files, use Blasting-specific metadata extraction
+            metadata = extractMetadataBlasting(jsonData);
+        } else if (isGoldPad) {
             // For Gold Pad files, use same metadata extraction as DE-ANO
             metadata = extractMetadataDeAno(jsonData);
         } else if (is2DBarcode) {
@@ -970,6 +1109,249 @@ function analyzeExcelContent(workbook, fileName = '') {
 
         // First, scan for specifications in the sheet
         const specs = detectSpecifications(jsonData);
+
+        // CNC FILES - Machine Operation Check List
+        if (isCNC) {
+            console.log('=== CNC File Detected ===');
+
+            // Get metadata headers (columns B-P from rows 3-5)
+            const metadataHeaders = extractCNCMetadataHeaders(jsonData);
+
+            // Get parameter headers (columns Q onwards from rows 3-5)
+            const headerRow1 = jsonData[2] || []; // Row 3
+            const headerRow2 = jsonData[3] || []; // Row 4
+            const headerRow3 = jsonData[4] || []; // Row 5
+
+            const paramHeaders = [];
+            const maxCol = Math.max(headerRow1.length, headerRow2.length, headerRow3.length);
+
+            // Process columns Q onwards (index 16+) for parameters
+            // Row 4 (index 3) has specifications, Row 5 (index 4) has parameter names
+            for (let col = 16; col < maxCol; col++) {
+                // Get parameter name from row 5
+                const paramName = headerRow3[col] ? String(headerRow3[col]).trim() : '';
+
+                // Get specification from row 4
+                const spec = headerRow2[col] ? String(headerRow2[col]).trim() : '';
+
+                if (paramName && paramName !== '/') {
+                    paramHeaders.push({
+                        col: col,
+                        name: paramName,
+                        spec: spec && spec !== '/' ? spec : null,
+                        colLetter: String.fromCharCode(65 + col)
+                    });
+                }
+            }
+
+            console.log(`Found ${metadataHeaders.length} metadata headers and ${paramHeaders.length} parameter headers for CNC file`);
+
+            // Collect machine data from rows 6 onwards
+            const machines = [];
+            for (let row = 5; row < jsonData.length; row++) {
+                const rowData = jsonData[row];
+                if (!rowData) continue;
+
+                // Check if this row has a machine number in column A
+                const machineNo = rowData[0];
+                if (machineNo && !isNaN(parseInt(machineNo))) {
+                    const machineInfo = {
+                        no: String(machineNo).trim(),
+                        station: rowData[11] ? String(rowData[11]).trim() : '', // Column L (Station)
+                        serialNo: rowData[4] ? String(rowData[4]).trim() : '', // Column E (Machine Serial No)
+                        metadata: [],
+                        parameters: []
+                    };
+
+                    // Collect metadata for this machine (columns B-P)
+                    metadataHeaders.forEach(header => {
+                        const value = rowData[header.col];
+                        if (value !== undefined && value !== null && value !== '') {
+                            let valueStr = String(value).trim();
+
+                            // Convert Excel date serial numbers to readable dates
+                            if ((header.name.toLowerCase().includes('date') || header.name.toLowerCase().includes('qual')) && !isNaN(value) && value > 40000) {
+                                valueStr = excelDateToJSDate(value);
+                            }
+
+                            if (valueStr !== '/') {
+                                machineInfo.metadata.push({
+                                    key: header.name,
+                                    value: valueStr
+                                });
+                            }
+                        }
+                    });
+
+                    // Collect parameters for this machine (columns Q onwards)
+                    paramHeaders.forEach(header => {
+                        const value = rowData[header.col];
+                        if (value !== undefined && value !== null && value !== '') {
+                            const valueStr = String(value).trim();
+                            if (valueStr !== '/') {
+                                // Check if value passes spec
+                                const passes = header.spec ? checkCNCSpec(valueStr, header.spec) : null;
+
+                                machineInfo.parameters.push({
+                                    name: header.name,
+                                    value: valueStr,
+                                    spec: header.spec, // Include specification from row 4
+                                    passes: passes, // true/false/null
+                                    col: header.colLetter
+                                });
+                            }
+                        }
+                    });
+
+                    machines.push(machineInfo);
+                }
+            }
+
+            console.log(`Found ${machines.length} machines in CNC file`);
+
+            // Add each machine as a spec_validation item with metadata
+            machines.forEach(machine => {
+                const displayName = machine.station || machine.serialNo || `Machine ${machine.no}`;
+
+                analysis.push({
+                    type: 'spec_validation',
+                    field: displayName,
+                    machineId: displayName,
+                    message: `${displayName}`,
+                    status: 'good',
+                    spec: null,
+                    stats: {},
+                    machineMetadata: machine.metadata, // Add machine-specific metadata
+                    parameters: machine.parameters,
+                    mainHeader: 'CNC Machine Operation Check'
+                });
+            });
+
+            // Skip further processing
+            return;
+        }
+
+        // BLASTING FILES - Process two tables (BG Up and CG Up)
+        if (isBlasting) {
+            console.log('=== Blasting File Detected ===');
+
+            // Process both tables: BG Up (row 8) and CG Up (row 30)
+            const tables = [
+                { name: 'BG Up', headerRow: 7, metadataRow: 12, dataStartRow: 12 },
+                { name: 'CG Up', headerRow: 29, metadataRow: 34, dataStartRow: 34 }
+            ];
+
+            tables.forEach(table => {
+                console.log(`Processing table: ${table.name}`);
+
+                // Extract table metadata from the first data row (columns C-G)
+                const metadataRow = jsonData[table.metadataRow];
+                const tableMetadata = [];
+
+                if (metadataRow) {
+                    // Column C: Site
+                    if (metadataRow[2]) tableMetadata.push({ key: 'Site', value: String(metadataRow[2]).trim() });
+                    // Column D: Floor
+                    if (metadataRow[3]) tableMetadata.push({ key: 'Floor', value: String(metadataRow[3]).trim() });
+                    // Column E: Line
+                    if (metadataRow[4]) tableMetadata.push({ key: 'Line', value: String(metadataRow[4]).trim() });
+                    // Column F: Machine No.
+                    if (metadataRow[5]) tableMetadata.push({ key: 'Machine No.', value: String(metadataRow[5]).trim() });
+                    // Column G: Setup Date
+                    if (metadataRow[6]) {
+                        const setupDate = metadataRow[6];
+                        const dateValue = typeof setupDate === 'number' ? excelDateToJSDate(setupDate) : String(setupDate).trim();
+                        tableMetadata.push({ key: 'Setup Date', value: dateValue });
+                    }
+                }
+
+                // Extract parameter headers from row 9/31 (columns I onwards)
+                const paramHeaderRow = table.headerRow + 1;
+                const specTypeRow = table.headerRow + 3; // Row 11/33 - LSL/USL labels
+                const specValueRow = table.headerRow + 4; // Row 12/34 - spec values
+
+                const parameters = [];
+
+                // Belt Speed is special - columns I-J merged, constant value
+                parameters.push({
+                    name: 'Belt Speed(m/min)',
+                    col: 8, // Column I
+                    lsl: jsonData[specValueRow] && jsonData[specValueRow][8] ? jsonData[specValueRow][8] : null,
+                    usl: jsonData[specValueRow] && jsonData[specValueRow][9] ? jsonData[specValueRow][9] : null,
+                    isConstant: true
+                });
+
+                // Other parameters from columns K onwards (10+)
+                for (let col = 10; col <= 20; col += 2) { // K, M, O, Q, S, U (every 2 columns)
+                    const paramName = jsonData[paramHeaderRow] && jsonData[paramHeaderRow][col] ?
+                        String(jsonData[paramHeaderRow][col]).trim() : '';
+
+                    if (paramName && paramName !== '' && paramName !== 'Blasting Area') {
+                        parameters.push({
+                            name: paramName,
+                            col: col,
+                            lsl: jsonData[specValueRow] && jsonData[specValueRow][col] ? jsonData[specValueRow][col] : null,
+                            usl: jsonData[specValueRow] && jsonData[specValueRow][col + 1] ? jsonData[specValueRow][col + 1] : null,
+                            isConstant: false
+                        });
+                    }
+                }
+
+                // Extract nozzle data
+                const nozzles = [];
+                for (let row = table.dataStartRow; row < jsonData.length && row < table.dataStartRow + 50; row++) {
+                    const rowData = jsonData[row];
+                    if (!rowData) break;
+
+                    const nozzleNum = rowData[7]; // Column H
+                    if (!nozzleNum || nozzleNum === '' || nozzleNum === 'Nozzle #') continue;
+
+                    // Check if we've reached the next table or end
+                    if (table.name === 'BG Up' && row >= 29) break;
+
+                    const nozzleData = {
+                        number: nozzleNum,
+                        parameters: []
+                    };
+
+                    // Add all parameters for this nozzle
+                    parameters.forEach(param => {
+                        const value = param.isConstant ?
+                            (jsonData[table.dataStartRow] ? jsonData[table.dataStartRow][param.col] : null) :
+                            rowData[param.col];
+
+                        if (value !== undefined && value !== null && value !== '') {
+                            nozzleData.parameters.push({
+                                name: param.name,
+                                value: value,
+                                lsl: param.lsl,
+                                usl: param.usl
+                            });
+                        }
+                    });
+
+                    if (nozzleData.parameters.length > 0) {
+                        nozzles.push(nozzleData);
+                    }
+                }
+
+                console.log(`Found ${nozzles.length} nozzles in ${table.name}`);
+
+                // Add to analysis
+                analysis.push({
+                    type: 'spec_validation',
+                    field: table.name,
+                    message: table.name,
+                    status: 'good',
+                    tableMetadata: tableMetadata,
+                    nozzles: nozzles,
+                    isBlastingTable: true
+                });
+            });
+
+            // Skip further processing
+            return;
+        }
 
         // POLISHING/SANDING FILES - Read headers, subheaders, and machine data
         if (isSandingOrPolishing) {
@@ -3327,7 +3709,7 @@ function generateSummary(file, data) {
             const hasPolishingHeaders = specValidation.some(item => item.headers);
 
             // Check if this is transcoding data (has parameters property instead of headers)
-            const isTranscodingData = specValidation.some(item => item.parameters && item.parameters.length > 0);
+            const isTranscodingData = specValidation.some(item => (item.parameters && item.parameters.length > 0) || item.nozzles);
 
             console.log('=== Display Detection ===');
             console.log('hasPolishingHeaders:', hasPolishingHeaders);
@@ -3467,199 +3849,360 @@ function generateSummary(file, data) {
 
                 summary += `</div>`; // Close the specification compliance section
             } else if (isTranscodingData) {
-                // TRANSCODING DATA DISPLAY - Show detailed parameter headers
-                summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
-                summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 15px; font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">📏 Specification Compliance</p>`;
+                // Check if this is Blasting data (has isBlastingTable property)
+                const isBlastingData = specValidation.some(item => item.isBlastingTable);
 
-                // Don't display main header - it's not necessary
+                // Check if this is CNC data (has machineMetadata property)
+                const isCNCData = specValidation.some(item => item.machineMetadata);
 
-                // Display each machine with its spec data
-                specValidation.forEach((item, idx) => {
-                    const machineId = item.machineId || item.field;
+                if (isBlastingData) {
+                    // BLASTING DATA DISPLAY - Show summary like deburring files
+                    specValidation.forEach((table, idx) => {
+                        // Table container
+                        summary += `<div style="margin-top: ${idx > 0 ? '25px' : '20px'}; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
 
-                    // Machine header
-                    summary += `<p style="font-weight: 600; color: #818cf8; margin-top: ${idx > 0 ? '15px' : '10px'}; margin-bottom: 8px; font-size: 1.05rem; margin-left: 10px;">${machineId}</p>`;
+                        // Table header
+                        summary += `<p style="font-weight: 700; color: #818cf8; margin-bottom: 15px; font-size: 1.2rem; padding-bottom: 10px; border-bottom: 2px solid #475569;">📊 ${table.field}</p>`;
 
-                    if (item.parameters && item.parameters.length > 0) {
-                        // Count parameters and check compliance
-                        let totalParams = 0;
-                        let passedParams = 0;
-                        let outOfSpecDetails = [];
+                        // Display table metadata
+                        if (table.tableMetadata && table.tableMetadata.length > 0) {
+                            summary += `<div style="margin-bottom: 15px; padding: 15px; background: rgba(15, 20, 50, 0.4); border-radius: 8px; border-left: 3px solid #818cf8;">`;
+                            summary += `<p style="font-weight: 600; color: #a78bfa; margin-bottom: 10px; font-size: 0.95rem;">Table Information</p>`;
 
-                        // Group parameters by parent header
-                        const paramsByParent = {};
-                        const noParent = [];
+                            table.tableMetadata.forEach(meta => {
+                                summary += `<p style="margin: 4px 0; color: #cbd5e1; font-size: 0.9rem;"><strong style="color: #e2e8f0;">${meta.key}:</strong> ${meta.value}</p>`;
+                            });
 
-                        item.parameters.forEach(param => {
-                            if (param.parentHeader) {
-                                if (!paramsByParent[param.parentHeader]) {
-                                    paramsByParent[param.parentHeader] = [];
-                                }
-                                paramsByParent[param.parentHeader].push(param);
-                            } else {
-                                noParent.push(param);
-                            }
-                        });
+                            summary += `</div>`;
+                        }
 
-                        // Display each parameter with its header
-                        summary += `<div style="margin-left: 20px; margin-top: 8px;">`;
+                        // Calculate pass/fail summary for nozzles and parameters
+                        if (table.nozzles && table.nozzles.length > 0) {
+                            let totalNozzles = table.nozzles.length;
+                            let passedNozzles = 0;
+                            let failedNozzles = 0;
 
-                        // First display parameters without parent header
-                        noParent.forEach(param => {
-                            // Extract numeric value from the parameter value
-                            // Handle cases like "Y", "X=0.9", "0.022", "X=0.9, Y=0.7", etc.
-                            let numVal = null;
-                            let displayValue = param.value;
+                            // Collect parameter statistics
+                            const paramStats = {};
 
-                            // Special handling for "Working table levelness" with X=0.9, Y=0.7 format
-                            if (param.value.includes('X=') && param.value.includes('Y=')) {
-                                // Extract X and Y values
-                                const xMatch = param.value.match(/X\s*=\s*(-?\d+\.?\d*)/i);
-                                const yMatch = param.value.match(/Y\s*=\s*(-?\d+\.?\d*)/i);
+                            table.nozzles.forEach(nozzle => {
+                                let nozzlePassed = true;
 
-                                if (xMatch && yMatch) {
-                                    const xVal = parseFloat(xMatch[1]);
-                                    const yVal = parseFloat(yMatch[1]);
-                                    // Use the maximum of X and Y for spec checking
-                                    numVal = Math.max(xVal, yVal);
-                                }
-                            }
-                            // If value contains "=" (but not X= Y= format), extract the number after it
-                            else if (param.value.includes('=')) {
-                                const match = param.value.match(/=\s*(-?\d+\.?\d*)/);
-                                if (match) {
-                                    numVal = parseFloat(match[1]);
-                                }
-                            } else if (!isNaN(parseFloat(param.value))) {
-                                numVal = parseFloat(param.value);
-                            }
-
-                            // Check compliance if we have numeric value and spec limits
-                            let isWithinSpec = null;
-                            let icon = '•';
-                            let color = '#34d399'; // Match the green color of passing parameters
-
-                            if (numVal !== null && param.usl && param.lsl) {
-                                totalParams++;
-                                const uslNum = parseFloat(param.usl);
-                                const lslNum = parseFloat(param.lsl);
-
-                                if (!isNaN(uslNum) && !isNaN(lslNum)) {
-                                    isWithinSpec = numVal >= lslNum && numVal <= uslNum;
-                                    if (isWithinSpec) {
-                                        passedParams++;
-                                        icon = '✅';
-                                        color = '#34d399';
-                                    } else {
-                                        icon = '❌';
-                                        color = '#f87171';
-                                        outOfSpecDetails.push({
-                                            name: param.name,
-                                            value: param.value,
-                                            spec: `${lslNum}-${uslNum}${param.unit ? ' ' + param.unit : ''}`
-                                        });
+                                nozzle.parameters.forEach(param => {
+                                    // Initialize param stats if not exists
+                                    if (!paramStats[param.name]) {
+                                        paramStats[param.name] = {
+                                            total: 0,
+                                            passed: 0,
+                                            failed: 0,
+                                            lsl: param.lsl,
+                                            usl: param.usl
+                                        };
                                     }
-                                }
-                            } else if (numVal !== null && param.usl) {
-                                // Only USL specified (like <=0.05)
-                                totalParams++;
-                                const uslNum = parseFloat(param.usl);
 
-                                if (!isNaN(uslNum)) {
-                                    isWithinSpec = numVal <= uslNum;
-                                    if (isWithinSpec) {
-                                        passedParams++;
-                                        icon = '✅';
-                                        color = '#34d399';
-                                    } else {
-                                        icon = '❌';
-                                        color = '#c62828';
-                                        outOfSpecDetails.push({
-                                            name: param.name,
-                                            value: param.value,
-                                            spec: `<=${uslNum}${param.unit ? ' ' + param.unit : ''}`
-                                        });
+                                    const numValue = parseFloat(param.value);
+                                    if (!isNaN(numValue) && (param.lsl !== null || param.usl !== null)) {
+                                        paramStats[param.name].total++;
+
+                                        let paramPassed = true;
+                                        if (param.lsl !== null && numValue < param.lsl) paramPassed = false;
+                                        if (param.usl !== null && numValue > param.usl) paramPassed = false;
+
+                                        if (paramPassed) {
+                                            paramStats[param.name].passed++;
+                                        } else {
+                                            paramStats[param.name].failed++;
+                                            nozzlePassed = false;
+                                        }
                                     }
-                                }
-                            } else if (numVal !== null && param.lsl) {
-                                // Only LSL specified
-                                totalParams++;
-                                const lslNum = parseFloat(param.lsl);
+                                });
 
-                                if (!isNaN(lslNum)) {
-                                    isWithinSpec = numVal >= lslNum;
-                                    if (isWithinSpec) {
-                                        passedParams++;
-                                        icon = '✅';
-                                        color = '#34d399';
-                                    } else {
-                                        icon = '❌';
-                                        color = '#c62828';
-                                        outOfSpecDetails.push({
-                                            name: param.name,
-                                            value: param.value,
-                                            spec: `>=${lslNum}${param.unit ? ' ' + param.unit : ''}`
-                                        });
-                                    }
-                                }
-                            } else if (param.value.toLowerCase() === 'y' || param.value.toLowerCase() === 'yes') {
-                                // Handle Y/N type parameters
-                                totalParams++;
-                                passedParams++;
-                                icon = '✅';
-                                color = '#34d399';
-                            }
-
-                            // Display parameter with header, value, and spec
-                            let specText = '';
-                            if (param.specLimit) {
-                                // Use the spec limit from Row 5 if available
-                                // Don't add unit if specLimit already contains it
-                                const needsUnit = param.unit && !param.specLimit.includes(param.unit);
-                                specText = ` (Spec: ${param.specLimit}${needsUnit ? ' ' + param.unit : ''})`;
-                            } else if (param.usl && param.lsl) {
-                                // Use USL/LSL if available - add unit after both values
-                                const uslHasUnit = param.usl.includes(param.unit || '');
-                                const lslHasUnit = param.lsl.includes(param.unit || '');
-
-                                if (uslHasUnit || lslHasUnit) {
-                                    // If either already has unit, don't add it
-                                    specText = ` (LSL: ${param.lsl}, USL: ${param.usl})`;
-                                } else if (param.unit) {
-                                    // Add unit after both values
-                                    specText = ` (LSL: ${param.lsl} ${param.unit}, USL: ${param.usl} ${param.unit})`;
+                                if (nozzlePassed) {
+                                    passedNozzles++;
                                 } else {
-                                    specText = ` (LSL: ${param.lsl}, USL: ${param.usl})`;
+                                    failedNozzles++;
                                 }
-                            } else if (param.usl) {
-                                // Only USL
-                                const needsUnit = param.unit && !param.usl.includes(param.unit);
-                                specText = ` (Spec: <=${param.usl}${needsUnit ? ' ' + param.unit : ''})`;
-                            } else if (param.lsl) {
-                                // Only LSL
-                                const needsUnit = param.unit && !param.lsl.includes(param.unit);
-                                specText = ` (Spec: >=${param.lsl}${needsUnit ? ' ' + param.unit : ''})`;
+                            });
+
+                            const passRate = totalNozzles > 0 ? ((passedNozzles / totalNozzles) * 100).toFixed(1) : 0;
+                            const icon = passRate >= 95 ? '✅' : passRate >= 80 ? '⚠️' : '❌';
+                            const color = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
+
+                            summary += `<div style="margin-top: 12px; padding: 15px; background: rgba(15, 20, 50, 0.3); border-radius: 8px;">`;
+                            summary += `<p style="font-weight: 600; color: #34d399; margin-bottom: 8px; font-size: 0.95rem;">🔧 Nozzle Summary</p>`;
+                            summary += `<p style="margin: 8px 0; color: ${color}; font-weight: 600; font-size: 1.05rem;">${icon} ${passedNozzles}/${totalNozzles} nozzles passed (${passRate}%)</p>`;
+                            if (failedNozzles > 0) {
+                                summary += `<p style="margin: 4px 0; color: #f87171; font-size: 0.9rem;">❌ ${failedNozzles} nozzle(s) failed</p>`;
                             }
-                            // Add unit after the value if available
-                            const valueWithUnit = param.unit ? `${displayValue} ${param.unit}` : displayValue;
-                            summary += `<p style="margin: 4px 0; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
+
+                            // Display parameter-by-parameter breakdown
+                            summary += `<div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #475569;">`;
+                            summary += `<p style="font-weight: 600; color: #a78bfa; margin-bottom: 8px; font-size: 0.9rem;">Parameter Breakdown:</p>`;
+
+                            Object.keys(paramStats).forEach(paramName => {
+                                const stats = paramStats[paramName];
+                                if (stats.total > 0) {
+                                    const paramPassRate = ((stats.passed / stats.total) * 100).toFixed(1);
+                                    const paramIcon = paramPassRate >= 95 ? '✅' : paramPassRate >= 80 ? '⚠️' : '❌';
+                                    const paramColor = paramPassRate >= 95 ? '#34d399' : paramPassRate >= 80 ? '#fb923c' : '#f87171';
+
+                                    let specText = '';
+                                    if (stats.lsl !== null || stats.usl !== null) {
+                                        const specParts = [];
+                                        if (stats.lsl !== null) specParts.push(`LSL: ${stats.lsl}`);
+                                        if (stats.usl !== null) specParts.push(`USL: ${stats.usl}`);
+                                        specText = ` <span style="color: #94a3b8; font-size: 0.8rem;">(${specParts.join(', ')})</span>`;
+                                    }
+
+                                    summary += `<p style="margin: 4px 0; color: ${paramColor}; font-size: 0.85rem; padding: 4px 8px; background: rgba(15, 20, 50, 0.3); border-radius: 4px;">${paramIcon} <strong>${paramName}:</strong> ${stats.passed}/${stats.total} passed (${paramPassRate}%)${specText}</p>`;
+                                }
+                            });
+
+                            summary += `</div>`;
+                            summary += `</div>`;
+                        }
+
+                        summary += `</div>`; // Close table container
+                    });
+                } else if (isCNCData) {
+                    // CNC DATA DISPLAY - Group machines by prefix, then collapsible accordion
+
+                    // Group machines by prefix (up to but EXCLUDING 2nd alphabetic character)
+                    // Special rule: All machines starting with 'P' go to 'Others'
+                    const machineGroups = {};
+                    specValidation.forEach((item, idx) => {
+                        const machineId = item.machineId || item.field;
+
+                        // Check if machine starts with 'P' - if so, put in 'Others'
+                        if (/^P/i.test(machineId)) {
+                            if (!machineGroups['Others']) {
+                                machineGroups['Others'] = [];
+                            }
+                            machineGroups['Others'].push({ item, idx });
+                            return;
+                        }
+
+                        // Extract group prefix: from start up to (but NOT including) 2nd alphabetic character
+                        // Examples: "C4F2" → "C4", "C2MCHF6" → "C2", "C1-1MCHF2" → "C1-1", "C1-1B..." → "C1-1"
+                        let groupName = 'Others';
+                        let alphaCount = 0;
+                        let groupPrefix = '';
+
+                        for (let i = 0; i < machineId.length; i++) {
+                            const char = machineId[i];
+
+                            // Check if character is alphabetic
+                            if (/[A-Z]/i.test(char)) {
+                                alphaCount++;
+                                if (alphaCount === 2) {
+                                    // Found 2nd alphabetic character, stop BEFORE adding it
+                                    groupName = groupPrefix;
+                                    break;
+                                }
+                            }
+
+                            // Add character to prefix (only if we haven't found 2nd alpha yet)
+                            groupPrefix += char;
+                        }
+
+                        // If we never found a 2nd alpha character, use what we have
+                        if (alphaCount < 2 && groupPrefix.length > 0) {
+                            groupName = groupPrefix;
+                        }
+
+                        if (!machineGroups[groupName]) {
+                            machineGroups[groupName] = [];
+                        }
+                        machineGroups[groupName].push({ item, idx });
+                    });
+
+                    // Sort groups: named groups first (alphabetically), then "Others"
+                    const sortedGroupNames = Object.keys(machineGroups).sort((a, b) => {
+                        if (a === 'Others') return 1;
+                        if (b === 'Others') return -1;
+                        return a.localeCompare(b);
+                    });
+
+                    summary += `<div style="margin-top: 20px;">`;
+                    summary += `<p style="font-weight: 700; color: #818cf8; margin-bottom: 15px; font-size: 1.1rem;">🔧 CNC Machines (${specValidation.length} total in ${sortedGroupNames.length} groups)</p>`;
+
+                    // Display each group
+                    sortedGroupNames.forEach((groupName, groupIdx) => {
+                        const machines = machineGroups[groupName];
+                        const groupId = `cnc-group-${groupIdx}`;
+
+                        // Count total pass/fail for the group
+                        let groupPassCount = 0;
+                        let groupFailCount = 0;
+                        machines.forEach(({ item }) => {
+                            if (item.parameters) {
+                                item.parameters.forEach(p => {
+                                    if (p.passes === true) groupPassCount++;
+                                    else if (p.passes === false) groupFailCount++;
+                                });
+                            }
                         });
 
-                        // Then display grouped parameters under their parent headers
-                        Object.keys(paramsByParent).forEach(parentHeader => {
-                            const groupParams = paramsByParent[parentHeader];
+                        // Group header (collapsible ribbon)
+                        summary += `<div style="margin-top: 12px; border: 2px solid #6366f1; border-radius: 10px; overflow: hidden; background: linear-gradient(135deg, #312e81 0%, #4338ca 100%);">`;
+                        summary += `<div onclick="toggleCNCMachine('${groupId}')" style="padding: 15px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(99, 102, 241, 0.3); transition: background 0.2s;" onmouseover="this.style.background='rgba(99, 102, 241, 0.5)'" onmouseout="this.style.background='rgba(99, 102, 241, 0.3)'">`;
+                        summary += `<span style="font-weight: 700; color: #c7d2fe; font-size: 1.1rem;">📂 ${groupName} <span style="color: #a5b4fc; font-weight: 400; font-size: 0.9rem;">(${machines.length} machines)</span></span>`;
+                        summary += `<span style="font-size: 0.95rem; color: #cbd5e1;">`;
+                        if (groupPassCount > 0) summary += `✅ ${groupPassCount} `;
+                        if (groupFailCount > 0) summary += `❌ ${groupFailCount} `;
+                        summary += `<span id="${groupId}-arrow" style="margin-left: 10px; transition: transform 0.3s;">▼</span>`;
+                        summary += `</span></div>`;
 
-                            // Display parent header
-                            summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 12px; margin-bottom: 6px; font-size: 1rem;">${parentHeader}</p>`;
+                        // Group content (machines within this group)
+                        summary += `<div id="${groupId}" style="display: none; padding: 10px; background: rgba(15, 20, 50, 0.3);">`;
 
-                            // Display each parameter in the group
-                            groupParams.forEach(param => {
+                        // Display each machine in this group
+                        machines.forEach(({ item, idx }) => {
+                            const machineId = item.machineId || item.field;
+                            const uniqueId = `cnc-machine-${idx}`;
+
+                            // Count pass/fail for summary
+                            let passCount = 0;
+                            let failCount = 0;
+                            if (item.parameters) {
+                                item.parameters.forEach(p => {
+                                    if (p.passes === true) passCount++;
+                                    else if (p.passes === false) failCount++;
+                                });
+                            }
+
+                            // Machine header (clickable)
+                            summary += `<div style="margin-top: 8px; border: 1px solid #475569; border-radius: 8px; overflow: hidden; background: linear-gradient(135deg, #1e293b 0%, #334155 100%);">`;
+                            summary += `<div onclick="toggleCNCMachine('${uniqueId}')" style="padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.6); transition: background 0.2s;" onmouseover="this.style.background='rgba(51, 65, 85, 0.8)'" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'">`;
+                            summary += `<span style="font-weight: 600; color: #818cf8; font-size: 1.05rem;">🔧 ${machineId}</span>`;
+                            summary += `<span style="font-size: 0.9rem; color: #94a3b8;">`;
+                            if (passCount > 0) summary += `✅ ${passCount} `;
+                            if (failCount > 0) summary += `❌ ${failCount} `;
+                            summary += `<span id="${uniqueId}-arrow" style="margin-left: 10px; transition: transform 0.3s;">▼</span>`;
+                            summary += `</span></div>`;
+
+                            // Machine content (collapsible)
+                            summary += `<div id="${uniqueId}" style="display: none; padding: 20px; border-top: 1px solid #475569;">`;
+
+                            // Display machine metadata
+                            if (item.machineMetadata && item.machineMetadata.length > 0) {
+                                summary += `<div style="margin-bottom: 15px; padding: 15px; background: rgba(15, 20, 50, 0.4); border-radius: 8px; border-left: 3px solid #818cf8;">`;
+                                summary += `<p style="font-weight: 600; color: #a78bfa; margin-bottom: 10px; font-size: 0.95rem;">Machine Information</p>`;
+
+                                item.machineMetadata.forEach(meta => {
+                                    summary += `<p style="margin: 4px 0; color: #cbd5e1; font-size: 0.9rem;"><strong style="color: #e2e8f0;">${meta.key}:</strong> ${meta.value}</p>`;
+                                });
+
+                                summary += `</div>`;
+                            }
+
+                            // Display parameters as "Specification Compliance"
+                            if (item.parameters && item.parameters.length > 0) {
+                                summary += `<div style="margin-top: 12px;">`;
+                                summary += `<p style="font-weight: 600; color: #34d399; margin-bottom: 8px; font-size: 0.95rem;">📏 Specification Compliance</p>`;
+
+                                // Sort parameters: those without specs first, then those with specs
+                                const paramsWithoutSpec = item.parameters.filter(p => !p.spec || p.spec === '/');
+                                const paramsWithSpec = item.parameters.filter(p => p.spec && p.spec !== '/');
+                                const sortedParams = [...paramsWithoutSpec, ...paramsWithSpec];
+
+                                sortedParams.forEach(param => {
+                                    // Determine pass/fail indicator and color
+                                    let indicator = '';
+                                    let bgColor = 'rgba(15, 20, 50, 0.3)';
+                                    let borderColor = 'transparent';
+
+                                    if (param.passes === true) {
+                                        indicator = '✅ ';
+                                        bgColor = 'rgba(52, 211, 153, 0.1)';
+                                        borderColor = '#34d399';
+                                    } else if (param.passes === false) {
+                                        indicator = '❌ ';
+                                        bgColor = 'rgba(248, 113, 113, 0.1)';
+                                        borderColor = '#f87171';
+                                    }
+
+                                    // Show parameter name, value, and spec (if available)
+                                    let displayText = `<strong style="color: #e2e8f0;">${param.name}:</strong> ${param.value}`;
+                                    if (param.spec && param.spec !== '/') {
+                                        displayText += ` <span style="color: #94a3b8; font-size: 0.85rem;">(Spec: ${param.spec})</span>`;
+                                    }
+
+                                    summary += `<p style="margin: 4px 0; color: #cbd5e1; font-size: 0.9rem; padding: 6px 12px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${borderColor};">${indicator}${displayText}</p>`;
+                                });
+
+                                summary += `</div>`;
+                            }
+
+                            summary += `</div>`; // Close collapsible content
+                            summary += `</div>`; // Close machine container
+                        });
+
+                        summary += `</div>`; // Close group content
+                        summary += `</div>`; // Close group container
+                    });
+
+                    summary += `</div>`; // Close CNC section
+                } else {
+                    // TRANSCODING DATA DISPLAY - Show detailed parameter headers
+                    summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
+                    summary += `<p style="font-weight: 700; color: #34d399; margin-bottom: 15px; font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">📏 Specification Compliance</p>`;
+
+                    // Don't display main header - it's not necessary
+
+                    // Display each machine with its spec data
+                    specValidation.forEach((item, idx) => {
+                        const machineId = item.machineId || item.field;
+
+                        // Machine header
+                        summary += `<p style="font-weight: 600; color: #818cf8; margin-top: ${idx > 0 ? '15px' : '10px'}; margin-bottom: 8px; font-size: 1.05rem; margin-left: 10px;">${machineId}</p>`;
+
+                        if (item.parameters && item.parameters.length > 0) {
+                            // Count parameters and check compliance
+                            let totalParams = 0;
+                            let passedParams = 0;
+                            let outOfSpecDetails = [];
+
+                            // Group parameters by parent header
+                            const paramsByParent = {};
+                            const noParent = [];
+
+                            item.parameters.forEach(param => {
+                                if (param.parentHeader) {
+                                    if (!paramsByParent[param.parentHeader]) {
+                                        paramsByParent[param.parentHeader] = [];
+                                    }
+                                    paramsByParent[param.parentHeader].push(param);
+                                } else {
+                                    noParent.push(param);
+                                }
+                            });
+
+                            // Display each parameter with its header
+                            summary += `<div style="margin-left: 20px; margin-top: 8px;">`;
+
+                            // First display parameters without parent header
+                            noParent.forEach(param => {
                                 // Extract numeric value from the parameter value
+                                // Handle cases like "Y", "X=0.9", "0.022", "X=0.9, Y=0.7", etc.
                                 let numVal = null;
                                 let displayValue = param.value;
 
-                                // If value contains "=", extract the number after it
-                                if (param.value.includes('=')) {
+                                // Special handling for "Working table levelness" with X=0.9, Y=0.7 format
+                                if (param.value.includes('X=') && param.value.includes('Y=')) {
+                                    // Extract X and Y values
+                                    const xMatch = param.value.match(/X\s*=\s*(-?\d+\.?\d*)/i);
+                                    const yMatch = param.value.match(/Y\s*=\s*(-?\d+\.?\d*)/i);
+
+                                    if (xMatch && yMatch) {
+                                        const xVal = parseFloat(xMatch[1]);
+                                        const yVal = parseFloat(yMatch[1]);
+                                        // Use the maximum of X and Y for spec checking
+                                        numVal = Math.max(xVal, yVal);
+                                    }
+                                }
+                                // If value contains "=" (but not X= Y= format), extract the number after it
+                                else if (param.value.includes('=')) {
                                     const match = param.value.match(/=\s*(-?\d+\.?\d*)/);
                                     if (match) {
                                         numVal = parseFloat(match[1]);
@@ -3671,7 +4214,7 @@ function generateSummary(file, data) {
                                 // Check compliance if we have numeric value and spec limits
                                 let isWithinSpec = null;
                                 let icon = '•';
-                                let color = '#e2e8f0';
+                                let color = '#34d399'; // Match the green color of passing parameters
 
                                 if (numVal !== null && param.usl && param.lsl) {
                                     totalParams++;
@@ -3695,7 +4238,7 @@ function generateSummary(file, data) {
                                         }
                                     }
                                 } else if (numVal !== null && param.usl) {
-                                    // Only USL specified
+                                    // Only USL specified (like <=0.05)
                                     totalParams++;
                                     const uslNum = parseFloat(param.usl);
 
@@ -3707,11 +4250,32 @@ function generateSummary(file, data) {
                                             color = '#34d399';
                                         } else {
                                             icon = '❌';
-                                            color = '#f87171';
+                                            color = '#c62828';
                                             outOfSpecDetails.push({
                                                 name: param.name,
                                                 value: param.value,
                                                 spec: `<=${uslNum}${param.unit ? ' ' + param.unit : ''}`
+                                            });
+                                        }
+                                    }
+                                } else if (numVal !== null && param.lsl) {
+                                    // Only LSL specified
+                                    totalParams++;
+                                    const lslNum = parseFloat(param.lsl);
+
+                                    if (!isNaN(lslNum)) {
+                                        isWithinSpec = numVal >= lslNum;
+                                        if (isWithinSpec) {
+                                            passedParams++;
+                                            icon = '✅';
+                                            color = '#34d399';
+                                        } else {
+                                            icon = '❌';
+                                            color = '#c62828';
+                                            outOfSpecDetails.push({
+                                                name: param.name,
+                                                value: param.value,
+                                                spec: `>=${lslNum}${param.unit ? ' ' + param.unit : ''}`
                                             });
                                         }
                                     }
@@ -3727,6 +4291,7 @@ function generateSummary(file, data) {
                                 let specText = '';
                                 if (param.specLimit) {
                                     // Use the spec limit from Row 5 if available
+                                    // Don't add unit if specLimit already contains it
                                     const needsUnit = param.unit && !param.specLimit.includes(param.unit);
                                     specText = ` (Spec: ${param.specLimit}${needsUnit ? ' ' + param.unit : ''})`;
                                 } else if (param.usl && param.lsl) {
@@ -3746,39 +4311,152 @@ function generateSummary(file, data) {
                                 } else if (param.usl) {
                                     // Only USL
                                     const needsUnit = param.unit && !param.usl.includes(param.unit);
-                                    specText = ` (USL: ${param.usl}${needsUnit ? ' ' + param.unit : ''})`;
+                                    specText = ` (Spec: <=${param.usl}${needsUnit ? ' ' + param.unit : ''})`;
                                 } else if (param.lsl) {
                                     // Only LSL
                                     const needsUnit = param.unit && !param.lsl.includes(param.unit);
-                                    specText = ` (LSL: ${param.lsl}${needsUnit ? ' ' + param.unit : ''})`;
+                                    specText = ` (Spec: >=${param.lsl}${needsUnit ? ' ' + param.unit : ''})`;
                                 }
                                 // Add unit after the value if available
                                 const valueWithUnit = param.unit ? `${displayValue} ${param.unit}` : displayValue;
-                                summary += `<p style="margin: 4px 0 4px 10px; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
+                                summary += `<p style="margin: 4px 0; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
                             });
-                        });
 
-                        summary += `</div>`;
+                            // Then display grouped parameters under their parent headers
+                            Object.keys(paramsByParent).forEach(parentHeader => {
+                                const groupParams = paramsByParent[parentHeader];
 
-                        // Show summary statistics
-                        if (totalParams > 0) {
-                            const passRate = ((passedParams / totalParams) * 100).toFixed(1);
-                            const summaryIcon = passRate >= 95 ? '✅' : passRate >= 80 ? '⚠️' : '❌';
-                            const summaryColor = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
+                                // Display parent header
+                                summary += `<p style="font-weight: 600; color: #818cf8; margin-top: 12px; margin-bottom: 6px; font-size: 1rem;">${parentHeader}</p>`;
 
-                            summary += `<p style="margin: 12px 0 4px 20px; color: ${summaryColor}; font-weight: 600; font-size: 1rem; padding-top: 8px; border-top: 1px solid #e0e0e0;">Summary: ${summaryIcon} ${passedParams}/${totalParams} parameters within spec (${passRate}%)</p>`;
+                                // Display each parameter in the group
+                                groupParams.forEach(param => {
+                                    // Extract numeric value from the parameter value
+                                    let numVal = null;
+                                    let displayValue = param.value;
+
+                                    // If value contains "=", extract the number after it
+                                    if (param.value.includes('=')) {
+                                        const match = param.value.match(/=\s*(-?\d+\.?\d*)/);
+                                        if (match) {
+                                            numVal = parseFloat(match[1]);
+                                        }
+                                    } else if (!isNaN(parseFloat(param.value))) {
+                                        numVal = parseFloat(param.value);
+                                    }
+
+                                    // Check compliance if we have numeric value and spec limits
+                                    let isWithinSpec = null;
+                                    let icon = '•';
+                                    let color = '#e2e8f0';
+
+                                    if (numVal !== null && param.usl && param.lsl) {
+                                        totalParams++;
+                                        const uslNum = parseFloat(param.usl);
+                                        const lslNum = parseFloat(param.lsl);
+
+                                        if (!isNaN(uslNum) && !isNaN(lslNum)) {
+                                            isWithinSpec = numVal >= lslNum && numVal <= uslNum;
+                                            if (isWithinSpec) {
+                                                passedParams++;
+                                                icon = '✅';
+                                                color = '#34d399';
+                                            } else {
+                                                icon = '❌';
+                                                color = '#f87171';
+                                                outOfSpecDetails.push({
+                                                    name: param.name,
+                                                    value: param.value,
+                                                    spec: `${lslNum}-${uslNum}${param.unit ? ' ' + param.unit : ''}`
+                                                });
+                                            }
+                                        }
+                                    } else if (numVal !== null && param.usl) {
+                                        // Only USL specified
+                                        totalParams++;
+                                        const uslNum = parseFloat(param.usl);
+
+                                        if (!isNaN(uslNum)) {
+                                            isWithinSpec = numVal <= uslNum;
+                                            if (isWithinSpec) {
+                                                passedParams++;
+                                                icon = '✅';
+                                                color = '#34d399';
+                                            } else {
+                                                icon = '❌';
+                                                color = '#f87171';
+                                                outOfSpecDetails.push({
+                                                    name: param.name,
+                                                    value: param.value,
+                                                    spec: `<=${uslNum}${param.unit ? ' ' + param.unit : ''}`
+                                                });
+                                            }
+                                        }
+                                    } else if (param.value.toLowerCase() === 'y' || param.value.toLowerCase() === 'yes') {
+                                        // Handle Y/N type parameters
+                                        totalParams++;
+                                        passedParams++;
+                                        icon = '✅';
+                                        color = '#34d399';
+                                    }
+
+                                    // Display parameter with header, value, and spec
+                                    let specText = '';
+                                    if (param.specLimit) {
+                                        // Use the spec limit from Row 5 if available
+                                        const needsUnit = param.unit && !param.specLimit.includes(param.unit);
+                                        specText = ` (Spec: ${param.specLimit}${needsUnit ? ' ' + param.unit : ''})`;
+                                    } else if (param.usl && param.lsl) {
+                                        // Use USL/LSL if available - add unit after both values
+                                        const uslHasUnit = param.usl.includes(param.unit || '');
+                                        const lslHasUnit = param.lsl.includes(param.unit || '');
+
+                                        if (uslHasUnit || lslHasUnit) {
+                                            // If either already has unit, don't add it
+                                            specText = ` (LSL: ${param.lsl}, USL: ${param.usl})`;
+                                        } else if (param.unit) {
+                                            // Add unit after both values
+                                            specText = ` (LSL: ${param.lsl} ${param.unit}, USL: ${param.usl} ${param.unit})`;
+                                        } else {
+                                            specText = ` (LSL: ${param.lsl}, USL: ${param.usl})`;
+                                        }
+                                    } else if (param.usl) {
+                                        // Only USL
+                                        const needsUnit = param.unit && !param.usl.includes(param.unit);
+                                        specText = ` (USL: ${param.usl}${needsUnit ? ' ' + param.unit : ''})`;
+                                    } else if (param.lsl) {
+                                        // Only LSL
+                                        const needsUnit = param.unit && !param.lsl.includes(param.unit);
+                                        specText = ` (LSL: ${param.lsl}${needsUnit ? ' ' + param.unit : ''})`;
+                                    }
+                                    // Add unit after the value if available
+                                    const valueWithUnit = param.unit ? `${displayValue} ${param.unit}` : displayValue;
+                                    summary += `<p style="margin: 4px 0 4px 10px; color: ${color}; font-size: 0.95rem;">${icon} <strong style="font-weight: 500;">${param.name}:</strong> ${valueWithUnit}${specText}</p>`;
+                                });
+                            });
+
+                            summary += `</div>`;
+
+                            // Show summary statistics
+                            if (totalParams > 0) {
+                                const passRate = ((passedParams / totalParams) * 100).toFixed(1);
+                                const summaryIcon = passRate >= 95 ? '✅' : passRate >= 80 ? '⚠️' : '❌';
+                                const summaryColor = passRate >= 95 ? '#34d399' : passRate >= 80 ? '#fb923c' : '#f87171';
+
+                                summary += `<p style="margin: 12px 0 4px 20px; color: ${summaryColor}; font-weight: 600; font-size: 1rem; padding-top: 8px; border-top: 1px solid #e0e0e0;">Summary: ${summaryIcon} ${passedParams}/${totalParams} parameters within spec (${passRate}%)</p>`;
+                            } else {
+                                // If no numeric params, just show that data is present
+                                const paramCount = item.parameters.length;
+                                summary += `<p style="margin: 12px 0 4px 20px; color: #34d399; font-weight: 600; padding-top: 8px; border-top: 1px solid #475569;">Summary: ✅ ${paramCount} parameters recorded</p>`;
+                            }
                         } else {
-                            // If no numeric params, just show that data is present
-                            const paramCount = item.parameters.length;
-                            summary += `<p style="margin: 12px 0 4px 20px; color: #34d399; font-weight: 600; padding-top: 8px; border-top: 1px solid #475569;">Summary: ✅ ${paramCount} parameters recorded</p>`;
+                            // No parameters found - show debug info
+                            summary += `<p style="margin: 4px 0 4px 20px; color: #94a3b8; font-weight: 500;">• ℹ️ No parameter data available</p>`;
                         }
-                    } else {
-                        // No parameters found - show debug info
-                        summary += `<p style="margin: 4px 0 4px 20px; color: #94a3b8; font-weight: 500;">• ℹ️ No parameter data available</p>`;
-                    }
-                });
+                    });
 
-                summary += `</div>`;
+                    summary += `</div>`;
+                }
             } else {
                 // DEBURRING DATA DISPLAY - No header, just machine names
                 summary += `<div style="margin-top: 25px; padding: 25px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border: 1px solid #475569;">`;
@@ -4141,4 +4819,18 @@ function formatFileSize(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Toggle CNC machine collapsible section
+function toggleCNCMachine(machineId) {
+    const content = document.getElementById(machineId);
+    const arrow = document.getElementById(machineId + '-arrow');
+
+    if (content.style.display === 'none' || content.style.display === '') {
+        content.style.display = 'block';
+        arrow.style.transform = 'rotate(180deg)';
+    } else {
+        content.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)';
+    }
 }

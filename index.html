@@ -18,139 +18,194 @@
 
 <body>
     <div class="container">
-        <header>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                    <h1>📄 AI File Summarizer</h1>
-                    <p>Drag and drop files to get instant AI-powered summaries</p>
-                </div>
-                <button class="btn btn-secondary" id="clearBtnTop" style="display: none;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Clear All
-                </button>
-            </div>
 
-            <!-- How to Use Section -->
-            <details
-                style="margin-top: 20px; padding: 15px; background: rgba(30, 41, 59, 0.6); border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.1);">
-                <summary style="cursor: pointer; font-weight: 600; color: #818cf8; font-size: 1.1rem; padding: 5px;">
-                    📖 How to Use This App
-                </summary>
-                <div style="margin-top: 15px; color: #cbd5e1; line-height: 1.8;">
-                    <h3 style="color: #818cf8; margin-bottom: 10px;">Supported File Types:</h3>
-                    <ul style="margin-left: 20px; margin-bottom: 15px;">
-                        <li><strong>DE-ANO Files:</strong> Calibration data with parameters from columns J-T</li>
-                        <li><strong>Gold Pad Files:</strong> Extended calibration data with parameters from columns J-U
-                            (includes X/Y table repeating accuracy)</li>
+        <!-- ── Header ────────────────────────────────────────── -->
+        <header>
+            <h1>AI File Summarizer</h1>
+            <p>Drag &amp; drop Excel files for instant calibration data analysis</p>
+
+            <!-- How to Use -->
+            <details>
+                <summary>📖 How to Use This App</summary>
+                <div>
+                    <h3>Supported File Types</h3>
+                    <ul>
+                        <li><strong>CNC Files:</strong> Machine Operation Check List with comprehensive machine
+                            parameters</li>
+                        <li><strong>DE-ANO Files:</strong> Calibration data with parameters from columns J–T</li>
+                        <li><strong>Gold Pad Files:</strong> Extended calibration data from columns J–U (includes X/Y
+                            table repeating accuracy)</li>
                         <li><strong>Transcoding Files:</strong> Machine calibration data with spec validation</li>
-                        <li><strong>Polishing/Sanding Files:</strong> Robot cell calibration data</li>
+                        <li><strong>Polishing / Sanding Files:</strong> Robot cell calibration data</li>
                         <li><strong>Deburring Files:</strong> Nozzle-based measurement data</li>
                     </ul>
 
-                    <h3 style="color: #818cf8; margin-bottom: 10px;">Steps to Use:</h3>
-                    <ol style="margin-left: 20px; margin-bottom: 15px;">
+                    <h3>Steps to Use</h3>
+                    <ol>
                         <li><strong>Upload Files:</strong> Drag and drop your Excel files (.xlsx, .xls) into the drop
                             zone, or click to browse</li>
-                        <li><strong>Review Files:</strong> Check the uploaded files list to ensure all files are loaded
-                        </li>
-                        <li><strong>Summarize:</strong> Click "Summarize All Files" to analyze the data</li>
+                        <li><strong>Review Files:</strong> Confirm all files appear in the uploaded list</li>
+                        <li><strong>Summarize:</strong> Click "Summarize All" to analyze the data</li>
                         <li><strong>View Results:</strong> Review the detailed analysis including:
-                            <ul style="margin-left: 20px; margin-top: 5px;">
+                            <ul>
                                 <li>Document metadata (machine IDs, dates, etc.)</li>
                                 <li>Parameter values with spec compliance</li>
-                                <li>Pass/fail status for each parameter</li>
+                                <li>Pass / fail status per parameter</li>
                                 <li>Summary statistics</li>
                             </ul>
                         </li>
                         <li><strong>Export:</strong> Download results as PDF or Excel for reporting</li>
                     </ol>
 
-                    <h3 style="color: #818cf8; margin-bottom: 10px;">Key Features:</h3>
-                    <ul style="margin-left: 20px;">
+                    <h3>Key Features</h3>
+                    <ul>
                         <li>✅ Automatic file type detection</li>
                         <li>✅ Spec validation with color-coded results (green = pass, red = fail)</li>
                         <li>✅ Support for merged cells and complex Excel structures</li>
                         <li>✅ Scanner Calibration (X and Y axis) analysis</li>
-                        <li>✅ Multiple machine data in single file</li>
+                        <li>✅ Multiple machine data in a single file</li>
                         <li>✅ Export to PDF or Excel format</li>
                     </ul>
                 </div>
             </details>
         </header>
 
+        <!-- ── Sticky Action Bar ─────────────────────────────── -->
+        <div class="sticky-bar" id="stickyBar">
+            <div class="sticky-bar-inner">
+                <span class="sticky-file-count" id="stickyFileCount">0 files</span>
+                <div class="sticky-bar-actions">
+                    <button class="btn btn-export btn-sm" id="stickyExcelBtn" style="display:none;"
+                        onclick="document.getElementById('exportPptBtn').click()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export Excel
+                    </button>
+                    <button class="btn btn-export btn-sm" id="stickyPdfBtn" style="display:none;"
+                        onclick="document.getElementById('exportPdfBtn').click()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        Export PDF
+                    </button>
+                    <button class="btn btn-primary btn-sm" id="stickySummarizeBtn"
+                        onclick="document.getElementById('summarizeBtn').click()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Summarize All
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('clearBtn').click()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Clear All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ghost elements required by script.js — visually hidden, no-op -->
+        <button id="clearBtnTop" style="display:none; position:absolute; pointer-events:none;"
+            aria-hidden="true"></button>
+
+        <!-- ── Drop Zone ─────────────────────────────────────── -->
         <div class="drop-zone" id="dropZone">
             <div class="drop-zone-content">
                 <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <h2>Drop files here</h2>
-                <p>or click to browse</p>
-                <p class="supported-formats">Supports: PDF, DOCX, TXT, CSV, XLSX, and more</p>
+                <p>or click to browse your files</p>
+                <p class="supported-formats">📂 &nbsp;XLSX · XLS · CSV · PDF · DOCX · TXT</p>
             </div>
             <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.csv,.xlsx,.xls,.doc" hidden>
         </div>
 
+        <!-- ── Uploaded Files ────────────────────────────────── -->
         <div class="files-section" id="filesSection" style="display: none;">
             <h3>Uploaded Files</h3>
             <div class="files-list" id="filesList"></div>
         </div>
 
+        <!-- ── Summaries ─────────────────────────────────────── -->
         <div class="summaries-section" id="summariesSection" style="display: none;">
             <h3>Summaries</h3>
             <div class="summaries-container" id="summariesContainer"></div>
         </div>
 
-        <div class="actions" id="actions" style="display: none;">
-            <button class="btn btn-primary" id="summarizeBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Summarize All Files
-            </button>
-            <button class="btn btn-secondary" id="clearBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Clear All
-            </button>
+        <!-- ── Hidden action buttons (required by script.js) ─── -->
+        <!-- Visually hidden; sticky bar delegates clicks to these -->
+        <div class="actions actions-hidden" id="actions" style="display: none;">
+            <button class="btn btn-primary" id="summarizeBtn">Summarize All</button>
+            <button class="btn btn-secondary" id="clearBtn">Clear All</button>
         </div>
 
-        <div class="export-actions" id="exportActions" style="display: none;">
-            <h3>📥 Export Summary</h3>
+        <!-- ── Hidden export buttons (required by script.js) ─── -->
+        <div class="export-actions actions-hidden" id="exportActions" style="display: none;">
             <div class="export-buttons">
-                <button class="btn btn-export" id="copyResultsBtn">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy Results
-                </button>
-                <button class="btn btn-export" id="exportPdfBtn">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                    Export as PDF
-                </button>
-                <button class="btn btn-export" id="exportPptBtn">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                    Export as Excel
-                </button>
+                <button class="btn btn-export" id="copyResultsBtn">Copy Results</button>
+                <button class="btn btn-export" id="exportPdfBtn">Export as PDF</button>
+                <button class="btn btn-export" id="exportPptBtn">Export as Excel</button>
             </div>
         </div>
+
     </div>
 
     <script src="script.js?v=1775737932"></script>
+
+    <!-- Sticky bar sync — watches script.js-controlled divs via MutationObserver -->
+    <script>
+        (function () {
+            const stickyBar = document.getElementById('stickyBar');
+            const stickyFileCount = document.getElementById('stickyFileCount');
+            const stickySumBtn = document.getElementById('stickySummarizeBtn');
+            const stickyPdfBtn = document.getElementById('stickyPdfBtn');
+            const stickyExcelBtn = document.getElementById('stickyExcelBtn');
+
+            const actionsEl = document.getElementById('actions');
+            const exportActionsEl = document.getElementById('exportActions');
+            const summarizeBtnMain = document.getElementById('summarizeBtn');
+            const filesList = document.getElementById('filesList');
+
+            function syncBar() {
+                const actionsVisible = actionsEl && actionsEl.style.display !== 'none';
+                const exportVisible = exportActionsEl && exportActionsEl.style.display !== 'none';
+
+                // Show/hide sticky bar
+                stickyBar.classList.toggle('visible', actionsVisible);
+                if (!actionsVisible) return;
+
+                // Live file count
+                const count = filesList ? filesList.querySelectorAll('.file-item').length : 0;
+                stickyFileCount.textContent = count === 1 ? '1 file loaded' : count + ' files loaded';
+
+                // Mirror disabled state
+                if (stickySumBtn) stickySumBtn.disabled = summarizeBtnMain ? summarizeBtnMain.disabled : false;
+
+                // Export buttons appear only after summaries are generated
+                if (stickyPdfBtn) stickyPdfBtn.style.display = exportVisible ? 'inline-flex' : 'none';
+                if (stickyExcelBtn) stickyExcelBtn.style.display = exportVisible ? 'inline-flex' : 'none';
+            }
+
+            const observer = new MutationObserver(syncBar);
+            const opts = { attributes: true, attributeFilter: ['style', 'disabled'], subtree: true };
+
+            if (actionsEl) observer.observe(actionsEl, opts);
+            if (exportActionsEl) observer.observe(exportActionsEl, opts);
+            if (filesList) observer.observe(filesList, { childList: true });
+            if (summarizeBtnMain) observer.observe(summarizeBtnMain, { attributes: true });
+
+            syncBar();
+        })();
+    </script>
 </body>
 
 </html>
